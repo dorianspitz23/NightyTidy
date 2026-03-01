@@ -2,45 +2,30 @@ import { spawn } from 'child_process';
 import { platform } from 'os';
 import { info, warn, debug } from './logger.js';
 
-function runCommand(cmd, args, options = {}) {
+function runCommand(cmd, args, { timeoutMs, ...spawnOptions } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       shell: platform() === 'win32',
-      ...options,
+      ...spawnOptions,
     });
 
     let stdout = '';
     let stderr = '';
+    let timer;
+
+    if (timeoutMs) {
+      timer = setTimeout(() => {
+        child.kill();
+        reject(new Error('timeout'));
+      }, timeoutMs);
+    }
 
     child.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
     child.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
 
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
-  });
-}
-
-function runCommandWithTimeout(cmd, args, timeoutMs, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
-      shell: platform() === 'win32',
-      ...options,
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error('timeout'));
-    }, timeoutMs);
-
-    child.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
-
-    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+    child.on('error', (err) => { if (timer) clearTimeout(timer); reject(err); });
     child.on('close', (code) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       resolve({ code, stdout, stderr });
     });
   });
@@ -85,7 +70,7 @@ async function checkClaudeInstalled() {
 
 async function checkClaudeAuthenticated() {
   try {
-    const result = await runCommandWithTimeout('claude', ['-p', 'Say OK'], 30000);
+    const result = await runCommand('claude', ['-p', 'Say OK'], { timeoutMs: 30000 });
     if (result.code !== 0 || !result.stdout.trim()) {
       throw new Error('auth-failed');
     }
