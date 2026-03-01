@@ -59,6 +59,8 @@ test/
   contracts.test.js        # 17 tests — module API contract verification against CLAUDE.md
   helpers/
     cleanup.js             # Shared temp directory cleanup with EBUSY retry for Windows
+    mocks.js               # Shared mock factories: createMockProcess, createErrorProcess, createMockGit
+    testdata.js            # Shared test data factories: makeMetadata, makeResults
 vitest.config.js           # Coverage thresholds only (statements 90%, branches 80%, functions 80%)
 00_README.md .. 14_*.md    # PRD decomposition docs (reference only — not loaded by AI)
 ```
@@ -235,6 +237,7 @@ bin/nightytidy.js
 - **Smoke tests**: `smoke.test.js` — 6 fast structural checks for deploy verification (< 3s)
 - **Contract tests**: `contracts.test.js` — 17 tests verifying each module's error handling contract matches this document
 - **Temp dir cleanup**: Always use `robustCleanup()` from `test/helpers/cleanup.js` instead of raw `rm()` — Windows EBUSY from git file handles causes flaky failures otherwise
+- **Shared test factories**: Use `test/helpers/mocks.js` for mock process/git factories and `test/helpers/testdata.js` for report test data — don't duplicate these in individual test files
 - See `.claude/memory/testing.md` for detailed mock patterns and pitfalls
 
 ## Known Technical Debt

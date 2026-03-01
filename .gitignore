@@ -1,4 +1,5 @@
 node_modules/
+coverage/
 nightytidy-run.log
 *.log
 .env
