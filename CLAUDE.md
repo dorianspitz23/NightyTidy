@@ -9,7 +9,8 @@ Automated overnight codebase improvement through Claude Code. NightyTidy is an o
 - **All steps run on a dedicated branch** — `nightytidy/run-*` branches with pre-run safety tag
 - **No bare `console.log`** in production code — use logger (exception: `cli.js` terminal UX output)
 - **No TypeScript, no build step** — plain JavaScript ESM, runs directly
-- **Tests must pass before merging** — `npm test` (50 tests, all must be green)
+- **Tests must pass before merging** — `npm test` (119 tests, all must be green)
+- **Coverage thresholds enforced** — `npm run test:ci` fails if statements < 90%, branches < 80%, functions < 80%
 
 ## Tech Stack
 
@@ -41,13 +42,21 @@ src/
   prompts/
     steps.js               # 28 improvement prompts + DOC_UPDATE_PROMPT + CHANGELOG_PROMPT (5400+ lines, auto-generated)
 test/
+  smoke.test.js            # 6 tests — structural integrity, module imports, deploy verification
+  cli.test.js              # 20 tests — full lifecycle orchestration, SIGINT handling
+  logger.test.js           # 10 tests — real file I/O, level filtering, stderr fallback
   checks.test.js           # 4 tests — mock subprocess, mock git
+  checks-extended.test.js  # 9 tests — auth paths, disk space, branch warnings
   claude.test.js           # 15 tests — fake child process, fake timers
-  executor.test.js         # 5 tests — mocks claude, git, notifications
+  executor.test.js         # 6 tests — mocks claude, git, notifications
   git.test.js              # 11 tests — real git against temp dirs (integration)
+  git-extended.test.js     # 3 tests — getGitInstance, getHeadHash
   notifications.test.js    # 2 tests — mock node-notifier
   report.test.js           # 7 tests — mock fs, verify report format
+  report-extended.test.js  # 15 tests — updateClaudeMd, formatDuration edge cases
   steps.test.js            # 6 tests — structural integrity of prompt data
+  integration.test.js      # 5 tests — multi-module integration with real git repos
+vitest.config.js           # Coverage thresholds only (statements 90%, branches 80%, functions 80%)
 00_README.md .. 14_*.md    # PRD decomposition docs (reference only — not loaded by AI)
 ```
 
@@ -71,8 +80,9 @@ test/
 ```bash
 npm install               # Install dependencies
 npx nightytidy            # Run (interactive step selection)
-npm test                  # Vitest — single pass (50 tests)
+npm test                  # Vitest — single pass (119 tests)
 npm run test:watch        # Vitest — watch mode
+npm run test:ci           # Vitest with coverage + threshold enforcement
 # No build step — plain JavaScript ESM
 ```
 
@@ -92,7 +102,7 @@ No secrets or API keys — Claude Code handles its own authentication.
 - **Error handling per module** — see strategy table below; never change a module's error contract
 - **Singleton state** — `logger.js` and `git.js` use module-level mutable state, initialized once per run
 - **Naming**: files are `kebab-case.js`, functions are `camelCase`, constants are `UPPER_SNAKE`
-- **No config files** — Vitest uses defaults, no `.eslintrc`, no `.prettierrc`
+- **Minimal config** — `vitest.config.js` exists only for coverage thresholds; no `.eslintrc`, no `.prettierrc`
 - **Imports**: Node builtins first, then npm packages, then local modules
 - **Functions**: export only public API; keep helpers as unexported module-level functions
 - **Git commit messages**: prefixed with `NightyTidy:` for all automated commits
@@ -212,11 +222,13 @@ bin/nightytidy.js
 
 ## Testing
 
-- **Framework**: Vitest v2, no config file, uses defaults
-- **50 tests** across 7 files — `npm test` to run
+- **Framework**: Vitest v2, `vitest.config.js` for coverage thresholds only
+- **119 tests** across 14 files — `npm test` to run, `npm run test:ci` for coverage enforcement
+- **Coverage thresholds**: 90% statements, 80% branches, 80% functions — enforced by `test:ci`
 - **Philosophy**: Mock Claude Code subprocess, use real git against temp directories. Test failure paths harder than success paths
-- **Universal mock**: All test files mock `../src/logger.js` to prevent file I/O during tests
-- **Integration tests**: `git.test.js` creates real temp git repos — runs slower (~13s) but catches real issues
+- **Universal mock**: All test files mock `../src/logger.js` to prevent file I/O during tests (exception: `logger.test.js` tests the real logger)
+- **Integration tests**: `git.test.js`, `git-extended.test.js`, `integration.test.js` use real temp git repos — run slower but catch real issues
+- **Smoke tests**: `smoke.test.js` — 6 fast structural checks for deploy verification (< 3s)
 - See `.claude/memory/testing.md` for detailed mock patterns and pitfalls
 
 ## Known Technical Debt
