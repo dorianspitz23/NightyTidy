@@ -91,9 +91,6 @@ function runOnce(prompt, cwd, timeoutMs) {
       if (err.code === 'ENOENT' && platform() === 'win32' && !useShell) {
         clearTimeout(timer);
         warn('Claude Code ENOENT — retrying with shell: true (Windows fallback)');
-        const retry = runOnce(prompt, cwd, timeoutMs);
-        // Patch: the retry is already resolving with the shell fallback internally
-        // We need to spawn with shell this time
         settled = true;
         const shellChild = spawnClaude(prompt, cwd, true);
         let shellStdout = '';
