@@ -13,57 +13,7 @@ vi.mock('../src/logger.js', () => ({
 
 import { spawn } from 'child_process';
 import { runPreChecks } from '../src/checks.js';
-import { EventEmitter } from 'events';
-
-// ---------------------------------------------------------------------------
-// Helpers (matching checks.test.js conventions)
-// ---------------------------------------------------------------------------
-
-function createMockProcess({ code = 0, stdout = '', stderr = '' } = {}) {
-  const proc = new EventEmitter();
-  proc.stdout = new EventEmitter();
-  proc.stderr = new EventEmitter();
-  proc.kill = vi.fn();
-
-  process.nextTick(() => {
-    if (stdout) proc.stdout.emit('data', Buffer.from(stdout));
-    if (stderr) proc.stderr.emit('data', Buffer.from(stderr));
-    proc.emit('close', code);
-  });
-
-  return proc;
-}
-
-function createErrorProcess(errorMessage = 'command not found') {
-  const proc = new EventEmitter();
-  proc.stdout = new EventEmitter();
-  proc.stderr = new EventEmitter();
-  proc.kill = vi.fn();
-
-  process.nextTick(() => {
-    proc.emit('error', new Error(errorMessage));
-  });
-
-  return proc;
-}
-
-function createTimeoutProcess() {
-  const proc = new EventEmitter();
-  proc.stdout = new EventEmitter();
-  proc.stderr = new EventEmitter();
-  proc.kill = vi.fn(() => {
-    process.nextTick(() => proc.emit('close', null));
-  });
-  // Never emits close or error on its own — simulates hang
-  return proc;
-}
-
-function createMockGit({ isRepo = true, branches = [] } = {}) {
-  return {
-    checkIsRepo: vi.fn().mockResolvedValue(isRepo),
-    branch: vi.fn().mockResolvedValue({ all: branches }),
-  };
-}
+import { createMockProcess, createErrorProcess, createTimeoutProcess, createMockGit } from './helpers/mocks.js';
 
 // A helper that creates a spawn sequence handler based on command matching
 function mockSpawnForChecks({
