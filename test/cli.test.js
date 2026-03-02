@@ -308,7 +308,7 @@ describe('cli.js run()', () => {
   // -------------------------------------------------------------------------
   it('runs setup and exits without starting a run when --setup is used', async () => {
     const program = new Command();
-    program.opts.mockReturnValue({ setup: true });
+    program.opts.mockReturnValueOnce({ setup: true });
 
     await expect(run()).rejects.toThrow('process.exit called');
 
