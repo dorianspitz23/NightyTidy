@@ -27,6 +27,7 @@ describe('smoke tests', () => {
       '../src/executor.js',
       '../src/notifications.js',
       '../src/report.js',
+      '../src/setup.js',
       '../src/prompts/steps.js',
     ];
 
