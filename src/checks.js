@@ -6,6 +6,14 @@ const AUTH_TIMEOUT_MS = 30000;
 const CRITICAL_DISK_MB = 100;
 const LOW_DISK_MB = 1024;
 
+// Remove CLAUDECODE env var so subprocess doesn't refuse to start
+// when NightyTidy is invoked from within a Claude Code session.
+function cleanEnv() {
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+  return env;
+}
+
 function runCommand(cmd, args, { timeoutMs, ...spawnOptions } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
@@ -61,7 +69,7 @@ async function checkGitRepo(git) {
 
 async function checkClaudeInstalled() {
   try {
-    const result = await runCommand('claude', ['--version']);
+    const result = await runCommand('claude', ['--version'], { env: cleanEnv() });
     if (result.code !== 0) throw new Error();
     info('Pre-check: Claude Code installed \u2713');
   } catch {
@@ -72,13 +80,34 @@ async function checkClaudeInstalled() {
   }
 }
 
+function runInteractiveAuth() {
+  return new Promise((resolve, reject) => {
+    const child = spawn('claude', ['-p', 'Say OK'], {
+      stdio: 'inherit',
+      shell: platform() === 'win32',
+      env: cleanEnv(),
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`claude exited with code ${code}`));
+    });
+  });
+}
+
 async function checkClaudeAuthenticated() {
+  // First try silently (captured output) — fast path for already-authenticated
   try {
-    const result = await runCommand('claude', ['-p', 'Say OK'], { timeoutMs: AUTH_TIMEOUT_MS });
+    const result = await runCommand('claude', ['-p', 'Say OK'], {
+      timeoutMs: AUTH_TIMEOUT_MS,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: cleanEnv(),
+    });
     if (result.code !== 0 || !result.stdout.trim()) {
       throw new Error('auth-failed');
     }
     info('Pre-check: Claude Code authenticated \u2713');
+    return;
   } catch (err) {
     if (err.message === 'timeout') {
       throw new Error(
@@ -86,9 +115,18 @@ async function checkClaudeAuthenticated() {
         'Check https://status.anthropic.com and try again later.'
       );
     }
+    // Fall through to interactive sign-in attempt
+  }
+
+  // Silent check failed — launch Claude with terminal access for sign-in
+  info('Claude Code needs to sign in. Launching sign-in now...');
+  try {
+    await runInteractiveAuth();
+    info('Pre-check: Claude Code authenticated \u2713');
+  } catch {
     throw new Error(
-      "Claude Code is installed but doesn't seem to be authenticated.\n" +
-      'Run `claude` in your terminal and follow the sign-in steps, then try NightyTidy again.'
+      "Claude Code sign-in did not complete successfully.\n" +
+      'If this keeps happening, check https://status.anthropic.com for outages.'
     );
   }
 }

@@ -8,6 +8,15 @@ const RETRY_DELAY = 10000; // 10 seconds
 const STDIN_THRESHOLD = 8000; // chars
 const TIMEOUT_MESSAGE = 'Claude Code timed out after 30 minutes';
 
+// Remove CLAUDECODE env var so subprocess doesn't refuse to start
+// when NightyTidy is invoked from within a Claude Code session.
+// Safe because NightyTidy only uses non-interactive `claude -p` calls.
+function cleanEnv() {
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+  return env;
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -24,6 +33,7 @@ function spawnClaude(prompt, cwd, useShell = false) {
     cwd,
     stdio: [stdinMode, 'pipe', 'pipe'],
     shell: useShell,
+    env: cleanEnv(),
   });
 
   if (useStdin) {

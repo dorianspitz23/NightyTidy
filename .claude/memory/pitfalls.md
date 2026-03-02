@@ -54,5 +54,4 @@ Assumes CLAUDE.md loaded. Platform-specific issues, bugs, and gotchas.
 
 - **Tag collision**: `createPreRunTag()` handles same-minute collision with `-2` suffix, but NOT three-in-same-minute
 - **Merge conflict abort**: `git.merge(['--abort'])` can itself throw — caught and ignored
-- **Welcome marker**: Creates `~/.nightytidy/` directory — failure is silently ignored
 - **Empty step selection**: User deselects all → `process.exit(0)` with yellow message

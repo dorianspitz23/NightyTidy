@@ -18,7 +18,7 @@ No subcommands, no options beyond `--version` and `--help`. `projectDir = proces
 ## Lifecycle Steps (in order)
 
 1. **Logger init**: `initLogger(projectDir)` — writes to `nightytidy-run.log`
-2. **Welcome screen**: `showWelcome()` — one-time only, marker at `~/.nightytidy/welcome-shown`
+2. **Welcome screen**: `showWelcome()` — shown every run (no marker file, no persistence)
 3. **Git init + pre-checks**: `initGit(projectDir)` → `runPreChecks(projectDir, git)`
 4. **Step selection**: `@inquirer/checkbox` — all 28 steps checked by default, `pageSize: 15`
 5. **Sleep tip**: Console message about disabling sleep (4-8 hours typical)

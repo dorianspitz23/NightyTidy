@@ -54,7 +54,7 @@ Every error message should follow this pattern:
 | Not a git repo | `This folder isn't a git project. Navigate to your project folder and try again.` | `If you need to set one up, run: git init` |
 | Claude Code not installed | `Claude Code not detected.` | `Install it from https://docs.anthropic.com/en/docs/claude-code and sign in before running NightyTidy.` |
 | Claude Code timeout (auth check) | `Claude Code didn't respond within 30 seconds. It may be experiencing an outage.` | `Check https://status.anthropic.com and try again later.` |
-| Claude Code not authenticated | `Claude Code is installed but doesn't seem to be authenticated.` | `Run 'claude' in your terminal and follow the sign-in steps, then try NightyTidy again.` |
+| Claude Code sign-in failed | `Claude Code sign-in did not complete successfully.` | `If this keeps happening, check https://status.anthropic.com for outages.` |
 | Critical disk space (<100 MB) | `Very low disk space ([N] MB free). NightyTidy needs room for git operations.` | `Free up some space and try again.` |
 
 ## Claude Code Subprocess (`src/claude.js`)

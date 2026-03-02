@@ -5,7 +5,7 @@ NightyTidy: automated overnight codebase improvement via Claude Code subprocess 
 ## Current State
 
 - **Version**: 0.1.0
-- **Test count**: 50 (7 test files, all passing)
+- **Test count**: 135 (15 test files, all passing)
 - **Source files**: 9 modules in `src/`, 1 entry point in `bin/`
 - **Prompt count**: 28 improvement steps + DOC_UPDATE_PROMPT + CHANGELOG_PROMPT
 - **Last major change**: Initial implementation (commit `36e47ee`)

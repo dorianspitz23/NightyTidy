@@ -9,7 +9,9 @@ vi.mock('commander', () => {
     name: vi.fn().mockReturnThis(),
     description: vi.fn().mockReturnThis(),
     version: vi.fn().mockReturnThis(),
+    option: vi.fn().mockReturnThis(),
     parse: vi.fn(),
+    opts: vi.fn().mockReturnValue({}),
   };
   return { Command: vi.fn(() => program) };
 });
@@ -35,12 +37,6 @@ vi.mock('chalk', () => {
   passthrough.red = passthrough;
   return { default: passthrough };
 });
-
-vi.mock('fs', () => ({
-  existsSync: vi.fn().mockReturnValue(true),
-  mkdirSync: vi.fn(),
-  writeFileSync: vi.fn(),
-}));
 
 vi.mock('../src/logger.js', () => ({
   initLogger: vi.fn(),
@@ -92,6 +88,10 @@ vi.mock('../src/report.js', () => ({
   getVersion: vi.fn(() => '0.1.0'),
 }));
 
+vi.mock('../src/setup.js', () => ({
+  setupProject: vi.fn().mockReturnValue('created'),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports — after mocks
 // ---------------------------------------------------------------------------
@@ -105,7 +105,8 @@ import { runPrompt } from '../src/claude.js';
 import { executeSteps } from '../src/executor.js';
 import { notify } from '../src/notifications.js';
 import { generateReport } from '../src/report.js';
-import { existsSync } from 'fs';
+import { setupProject } from '../src/setup.js';
+import { Command } from 'commander';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -161,8 +162,8 @@ describe('cli.js run()', () => {
     // Prevent process.on from registering real handlers
     processOnSpy = vi.spyOn(process, 'on').mockImplementation(() => process);
 
-    // Default: welcome already shown (skip welcome)
-    existsSync.mockReturnValue(true);
+    // Simulate interactive terminal for checkbox tests
+    process.stdin.isTTY = true;
 
     // Default successful execution path
     checkbox.mockResolvedValue([
@@ -180,6 +181,7 @@ describe('cli.js run()', () => {
     consoleErrorSpy.mockRestore();
     processExitSpy.mockRestore();
     processOnSpy.mockRestore();
+    delete process.stdin.isTTY;
   });
 
   // -------------------------------------------------------------------------
@@ -302,6 +304,22 @@ describe('cli.js run()', () => {
   });
 
   // -------------------------------------------------------------------------
+  // --setup flag
+  // -------------------------------------------------------------------------
+  it('runs setup and exits without starting a run when --setup is used', async () => {
+    const program = new Command();
+    program.opts.mockReturnValue({ setup: true });
+
+    await expect(run()).rejects.toThrow('process.exit called');
+
+    expect(setupProject).toHaveBeenCalledWith(expect.any(String));
+    expect(processExitSpy).toHaveBeenCalledWith(0);
+    // Should NOT run pre-checks or execution
+    expect(runPreChecks).not.toHaveBeenCalled();
+    expect(executeSteps).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
   // Report commit failure (non-fatal)
   // -------------------------------------------------------------------------
   it('continues when report commit fails', async () => {
@@ -318,28 +336,14 @@ describe('cli.js run()', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Welcome screen (first run)
+  // Welcome screen
   // -------------------------------------------------------------------------
-  it('shows welcome screen on first run (marker file missing)', async () => {
-    existsSync.mockReturnValue(false);
-
+  it('shows welcome screen on every run', async () => {
     await run();
 
     expect(consoleLogSpy).toHaveBeenCalledWith(
       expect.stringContaining('Welcome to NightyTidy'),
     );
-  });
-
-  it('skips welcome screen when marker file exists', async () => {
-    existsSync.mockReturnValue(true);
-
-    await run();
-
-    // Welcome text should not appear
-    const welcomeCalls = consoleLogSpy.mock.calls.filter(
-      (call) => call[0]?.includes?.('Welcome to NightyTidy')
-    );
-    expect(welcomeCalls).toHaveLength(0);
   });
 
   // -------------------------------------------------------------------------

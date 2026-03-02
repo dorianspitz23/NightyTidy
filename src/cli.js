@@ -2,8 +2,6 @@ import { Command } from 'commander';
 import checkbox from '@inquirer/checkbox';
 import ora from 'ora';
 import chalk from 'chalk';
-import { homedir } from 'os';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import path from 'path';
 
 import { initLogger, info, error as logError, debug, warn } from './logger.js';
@@ -14,6 +12,7 @@ import { STEPS, CHANGELOG_PROMPT } from './prompts/steps.js';
 import { executeSteps } from './executor.js';
 import { notify } from './notifications.js';
 import { generateReport, formatDuration, getVersion } from './report.js';
+import { setupProject } from './setup.js';
 
 function buildStepCallbacks(spinner, selected) {
   return {
@@ -105,11 +104,6 @@ function printCompletionSummary(executionResults, mergeResult, { runBranch, tagN
 }
 
 function showWelcome() {
-  const markerDir = path.join(homedir(), '.nightytidy');
-  const markerFile = path.join(markerDir, 'welcome-shown');
-
-  if (existsSync(markerFile)) return;
-
   console.log(chalk.cyan(
     '\n' +
     '\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n' +
@@ -128,13 +122,6 @@ function showWelcome() {
     '\u2502                                                              \u2502\n' +
     '\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n'
   ));
-
-  try {
-    mkdirSync(markerDir, { recursive: true });
-    writeFileSync(markerFile, new Date().toISOString(), 'utf8');
-  } catch {
-    debug('Could not create welcome marker file');
-  }
 }
 
 export async function run() {
@@ -142,9 +129,14 @@ export async function run() {
   program
     .name('nightytidy')
     .description('Automated overnight codebase improvement through Claude Code')
-    .version(getVersion());
+    .version(getVersion())
+    .option('--all', 'Run all steps without interactive selection')
+    .option('--steps <numbers>', 'Run specific steps by number (comma-separated, e.g. --steps 1,5,12)')
+    .option('--list', 'List all available steps and exit')
+    .option('--setup', 'Add NightyTidy integration to this project\u2019s CLAUDE.md so Claude Code knows how to use it');
 
   program.parse();
+  const opts = program.opts();
 
   const projectDir = process.cwd();
   let spinner;
@@ -179,27 +171,61 @@ export async function run() {
     initLogger(projectDir);
     info('NightyTidy starting');
 
-    // 2. Show first-run welcome
+    // 2. List steps and exit (no git or pre-checks needed)
+    if (opts.list) {
+      STEPS.forEach(step => console.log(`${step.number}. ${step.name}`));
+      process.exit(0);
+    }
+
+    // 3. Setup mode — add CLAUDE.md integration and exit
+    if (opts.setup) {
+      const result = setupProject(projectDir);
+      const action = result === 'created' ? 'Created CLAUDE.md with' : 'Added';
+      console.log(chalk.green(`\u2713 ${action} NightyTidy integration to this project.`));
+      console.log(chalk.dim('  Claude Code now knows how to run NightyTidy in this project.'));
+      process.exit(0);
+    }
+
+    // 4. Show first-run welcome
     showWelcome();
 
-    // 3. Initialize git and run pre-checks
+    // 4. Initialize git and run pre-checks
     const git = initGit(projectDir);
     await runPreChecks(projectDir, git);
 
     // 4. Step selector
-    const selected = await checkbox({
-      message: 'Select steps to run (Enter to run all):',
-      choices: STEPS.map(step => ({
-        name: `${step.number}. ${step.name}`,
-        value: step,
-        checked: true,
-      })),
-      pageSize: 15,
-    });
+    let selected;
+    if (opts.all) {
+      selected = STEPS;
+      info(`Running all ${STEPS.length} steps (--all)`);
+    } else if (opts.steps) {
+      const requestedNums = opts.steps.split(',').map(s => parseInt(s.trim(), 10));
+      const invalid = requestedNums.filter(n => isNaN(n) || n < 1 || n > STEPS.length);
+      if (invalid.length > 0) {
+        console.log(chalk.red(`Invalid step number(s): ${invalid.join(', ')}. Valid range: 1-${STEPS.length}.`));
+        process.exit(1);
+      }
+      selected = STEPS.filter(step => requestedNums.includes(step.number));
+      info(`Running ${selected.length} selected step(s) (--steps ${opts.steps})`);
+    } else if (!process.stdin.isTTY) {
+      // Non-interactive environment (e.g. Claude Code, CI) — run all steps
+      selected = STEPS;
+      info(`Running all ${STEPS.length} steps (non-interactive mode)`);
+    } else {
+      selected = await checkbox({
+        message: 'Select steps to run (Enter to run all):',
+        choices: STEPS.map(step => ({
+          name: `${step.number}. ${step.name}`,
+          value: step,
+          checked: true,
+        })),
+        pageSize: 15,
+      });
 
-    if (!selected || selected.length === 0) {
-      console.log(chalk.yellow('You need to select at least one step. Exiting.'));
-      process.exit(0);
+      if (!selected || selected.length === 0) {
+        console.log(chalk.yellow('You need to select at least one step. Exiting.'));
+        process.exit(0);
+      }
     }
 
     // 5. Sleep tip

@@ -9,7 +9,7 @@ Automated overnight codebase improvement through Claude Code. NightyTidy is an o
 - **All steps run on a dedicated branch** — `nightytidy/run-*` branches with pre-run safety tag
 - **No bare `console.log`** in production code — use logger (exception: `cli.js` terminal UX output)
 - **No TypeScript, no build step** — plain JavaScript ESM, runs directly
-- **Tests must pass before merging** — `npm test` (136 tests, all must be green)
+- **Tests must pass before merging** — `npm test` (135 tests, all must be green)
 - **Coverage thresholds enforced** — `npm run test:ci` fails if statements < 90%, branches < 80%, functions < 80%
 
 ## Tech Stack
@@ -43,7 +43,7 @@ src/
     steps.js               # 28 improvement prompts + DOC_UPDATE_PROMPT + CHANGELOG_PROMPT (5400+ lines, auto-generated)
 test/
   smoke.test.js            # 6 tests — structural integrity, module imports, deploy verification
-  cli.test.js              # 20 tests — full lifecycle orchestration, SIGINT handling
+  cli.test.js              # 19 tests — full lifecycle orchestration, SIGINT handling
   logger.test.js           # 10 tests — real file I/O, level filtering, stderr fallback
   checks.test.js           # 4 tests — mock subprocess, mock git
   checks-extended.test.js  # 9 tests — auth paths, disk space, branch warnings
@@ -222,7 +222,7 @@ bin/nightytidy.js
 
 ## Core Workflow
 
-1. **Init**: Logger initialized, welcome screen shown (first run only via `~/.nightytidy/welcome-shown`)
+1. **Init**: Logger initialized, welcome screen shown
 2. **Pre-checks**: git installed → git repo → Claude CLI installed → Claude authenticated → disk space
 3. **Step selection**: Interactive checkbox UI shows all 28 steps (all checked by default)
 4. **Git setup**: Save branch → safety tag → run branch
@@ -234,7 +234,7 @@ bin/nightytidy.js
 ## Testing
 
 - **Framework**: Vitest v2, `vitest.config.js` for coverage thresholds only
-- **136 tests** across 15 files — `npm test` to run, `npm run test:ci` for coverage enforcement
+- **135 tests** across 15 files — `npm test` to run, `npm run test:ci` for coverage enforcement
 - **Coverage thresholds**: 90% statements, 80% branches, 80% functions — enforced by `test:ci`
 - **Philosophy**: Mock Claude Code subprocess, use real git against temp directories. Test failure paths harder than success paths
 - **Universal mock**: All test files mock `../src/logger.js` to prevent file I/O during tests (exception: `logger.test.js` tests the real logger)

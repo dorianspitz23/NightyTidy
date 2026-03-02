@@ -67,29 +67,8 @@ beforeEach(() => {
 
 describe('runPreChecks — extended coverage', () => {
   describe('Claude authentication', () => {
-    it('throws when Claude auth returns empty stdout (exit 0 but no output)', async () => {
-      mockSpawnForChecks({ claudeAuthStdout: '' });
-      // Make claudeAuthOk still true (exit code 0) but empty stdout
-      spawn.mockImplementation((cmd, args) => {
-        if (cmd === 'git') return createMockProcess({ code: 0, stdout: 'git version 2.40.0' });
-        if (cmd === 'claude' && args?.includes('--version'))
-          return createMockProcess({ code: 0, stdout: 'claude 1.0.0' });
-        if (cmd === 'claude' && args?.includes('-p'))
-          return createMockProcess({ code: 0, stdout: '' });
-        if (cmd === 'powershell')
-          return createMockProcess({ code: 0, stdout: '50000000000' });
-        return createMockProcess({ code: 0, stdout: 'ok' });
-      });
-
-      const mockGit = createMockGit({ isRepo: true });
-
-      await expect(runPreChecks('/fake/project', mockGit)).rejects.toThrow(
-        "doesn't seem to be authenticated"
-      );
-    });
-
-    it('throws when Claude auth returns non-zero exit code', async () => {
-      mockSpawnForChecks({ claudeAuthOk: false });
+    it('throws when both silent and interactive auth fail (empty stdout)', async () => {
+      // Every claude -p call returns empty stdout → silent fails, interactive fails too
       spawn.mockImplementation((cmd, args) => {
         if (cmd === 'git') return createMockProcess({ code: 0, stdout: 'git version 2.40.0' });
         if (cmd === 'claude' && args?.includes('--version'))
@@ -104,8 +83,50 @@ describe('runPreChecks — extended coverage', () => {
       const mockGit = createMockGit({ isRepo: true });
 
       await expect(runPreChecks('/fake/project', mockGit)).rejects.toThrow(
-        "doesn't seem to be authenticated"
+        'sign-in did not complete successfully'
       );
+    });
+
+    it('throws when both silent and interactive auth fail (non-zero exit)', async () => {
+      spawn.mockImplementation((cmd, args) => {
+        if (cmd === 'git') return createMockProcess({ code: 0, stdout: 'git version 2.40.0' });
+        if (cmd === 'claude' && args?.includes('--version'))
+          return createMockProcess({ code: 0, stdout: 'claude 1.0.0' });
+        if (cmd === 'claude' && args?.includes('-p'))
+          return createMockProcess({ code: 1, stdout: '' });
+        if (cmd === 'powershell')
+          return createMockProcess({ code: 0, stdout: '50000000000' });
+        return createMockProcess({ code: 0, stdout: 'ok' });
+      });
+
+      const mockGit = createMockGit({ isRepo: true });
+
+      await expect(runPreChecks('/fake/project', mockGit)).rejects.toThrow(
+        'sign-in did not complete successfully'
+      );
+    });
+
+    it('recovers when silent auth fails but interactive sign-in succeeds', async () => {
+      let claudeCallCount = 0;
+      spawn.mockImplementation((cmd, args) => {
+        if (cmd === 'git') return createMockProcess({ code: 0, stdout: 'git version 2.40.0' });
+        if (cmd === 'claude' && args?.includes('--version'))
+          return createMockProcess({ code: 0, stdout: 'claude 1.0.0' });
+        if (cmd === 'claude' && args?.includes('-p')) {
+          claudeCallCount++;
+          // First call (silent) fails, second call (interactive) succeeds
+          if (claudeCallCount === 1) return createMockProcess({ code: 1, stdout: '' });
+          return createMockProcess({ code: 0, stdout: 'OK' });
+        }
+        if (cmd === 'powershell')
+          return createMockProcess({ code: 0, stdout: '50000000000' });
+        return createMockProcess({ code: 0, stdout: 'ok' });
+      });
+
+      const mockGit = createMockGit({ isRepo: true });
+
+      // Should NOT throw — interactive sign-in recovered
+      await expect(runPreChecks('/fake/project', mockGit)).resolves.toBeUndefined();
     });
   });
 
