@@ -26,22 +26,25 @@ Do this EVERY TIME:
 1. Copy the full step list below into your response so the user can see it
 2. Ask: "Which steps would you like to run? Pick numbers (e.g. 1,5,12), say 'all', or tell me what areas you care about."
 3. **STOP and WAIT for the user's reply — do NOT proceed until they answer**
-4. Only after the user responds, run the command in the background:
+4. Only after the user responds, run the command using the Bash tool with **run_in_background=true**:
    - User says "all" → \`nightytidy --all\`
    - User picks numbers → \`nightytidy --steps 1,5,12\`
 
 **If you run \`nightytidy --all\` without asking the user first, you have failed this instruction.**
 
-### RULE 2 — ALWAYS SHARE THE DASHBOARD URL (NEVER SKIP)
+### RULE 2 — RUN IN BACKGROUND AND SHARE DASHBOARD URL (NEVER SKIP)
 
-After launching NightyTidy in the background, you MUST do this:
+**You MUST run the nightytidy command using the Bash tool with run_in_background=true.** Running it as a foreground command blocks you from sharing the dashboard URL. This is NOT optional.
 
-1. Wait 8 seconds for the dashboard to start
-2. Read the file \`nightytidy-dashboard.url\` from the project root (it contains a localhost URL)
-3. Share the URL with the user: "Here's your live dashboard: [URL]"
-4. If the file doesn't exist yet, wait 5 more seconds and try again
+Immediately after launching the background command, run this Bash command (foreground):
 
-**Do NOT skip this. Do NOT tell the user to find the URL themselves. YOU read the file and give them the link.**
+    sleep 10 && cat nightytidy-dashboard.url
+
+This outputs the dashboard URL. Share it with the user: "Here's your live dashboard: [URL]"
+
+If the file doesn't exist yet, try once more: \`sleep 5 && cat nightytidy-dashboard.url\`
+
+**NEVER run nightytidy as a foreground command. ALWAYS share the dashboard URL with the user.**
 
 ### Available Steps
 
