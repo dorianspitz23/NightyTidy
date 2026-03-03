@@ -29,12 +29,11 @@ Only when the user explicitly asks to "run NightyTidy" or "run nightytidy". Do N
 4. Run the matching command **in the background** (it takes hours):
    - User says "all" or similar → \`nightytidy --all\`
    - User picks specific numbers → \`nightytidy --steps 1,5,12\` (comma-separated)
-5. **CRITICAL — ALWAYS do this, NEVER skip**: Immediately after launching, run \`sleep 5 && cat nightytidy-dashboard.url\` to read the dashboard URL. Then share the URL with the user in a clearly visible message like:
+5. **CRITICAL — ALWAYS do this, NEVER skip**: After launching, wait 5 seconds, then read the file \`nightytidy-dashboard.url\` from the project root. It contains a localhost URL. Tell the user:
 
-   > **Live Dashboard**: http://localhost:XXXX
-   > Open this link in your browser to monitor progress in real time — you'll see step-by-step status, timing, and a stop button.
+   "NightyTidy is about to run. Check out the live progress on this URL: [paste the URL here]"
 
-   If the file doesn't exist yet, retry with \`sleep 5 && cat nightytidy-dashboard.url\`. The user relies on YOU to give them this link — they have no other way to find it.
+   If the file doesn't exist yet, wait another 5 seconds and read it again. Do NOT ask the user to run any commands — just read the file yourself and give them the link.
 6. Do not intervene after that — NightyTidy handles git, execution, and reporting
 
 ### Available Steps
