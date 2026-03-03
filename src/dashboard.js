@@ -77,11 +77,16 @@ function spawnTuiWindow() {
     const tuiScript = fileURLToPath(new URL('./dashboard-tui.js', import.meta.url));
 
     if (process.platform === 'win32') {
-      tuiProcess = spawn('cmd', ['/c', 'start', 'NightyTidy Progress', 'node', tuiScript, progressFilePath], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: false,
-      });
+      // Use shell:true so Node.js invokes cmd.exe /d /s /c "..." which:
+      //   /d — disables AutoRun registry interference
+      //   /s — reliably strips only the outer wrapper quotes
+      // This avoids Node.js argument-escaping edge cases with cmd.exe
+      // that can misparse paths containing spaces.
+      tuiProcess = spawn(
+        `start "NightyTidy Progress" node "${tuiScript}" "${progressFilePath}"`,
+        [],
+        { shell: true, stdio: 'ignore', windowsHide: true },
+      );
     } else if (process.platform === 'darwin') {
       tuiProcess = spawn('open', ['-a', 'Terminal', tuiScript, '--args', progressFilePath], {
         detached: true,

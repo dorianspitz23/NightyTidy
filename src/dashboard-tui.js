@@ -137,24 +137,32 @@ function startPolling(filePath) {
   let lastState = null;
 
   const interval = setInterval(() => {
-    const newState = readState();
-    if (newState) lastState = newState;
+    try {
+      const newState = readState();
+      if (newState) lastState = newState;
 
-    if (lastState) {
-      render(lastState);
+      if (lastState) {
+        render(lastState);
 
-      if (['completed', 'stopped', 'error'].includes(lastState.status)) {
-        clearInterval(interval);
-        setTimeout(() => process.exit(0), EXIT_DELAY);
+        if (['completed', 'stopped', 'error'].includes(lastState.status)) {
+          clearInterval(interval);
+          setTimeout(() => process.exit(0), EXIT_DELAY);
+        }
       }
+    } catch {
+      // Render or read failed — retry on next tick; don't crash the window
     }
   }, POLL_INTERVAL);
 
   // Initial render attempt
-  const initial = readState();
-  if (initial) {
-    lastState = initial;
-    render(initial);
+  try {
+    const initial = readState();
+    if (initial) {
+      lastState = initial;
+      render(initial);
+    }
+  } catch {
+    // Will retry on next interval
   }
 }
 
@@ -162,6 +170,9 @@ function startPolling(filePath) {
 const isMain = process.argv[1]?.replace(/\\/g, '/').endsWith('dashboard-tui.js');
 
 if (isMain) {
+  // Prevent uncaught errors from silently closing the window
+  process.on('uncaughtException', () => { /* stay alive — retry on next poll */ });
+
   const path = process.argv[2];
   if (!path) {
     console.error('Usage: node dashboard-tui.js <progress-file-path>');
