@@ -46,14 +46,14 @@ src/
     steps.js               # 28 improvement prompts + DOC_UPDATE_PROMPT + CHANGELOG_PROMPT (5400+ lines, auto-generated)
 test/
   smoke.test.js            # 6 tests — structural integrity, module imports, deploy verification
-  cli.test.js              # 23 tests — full lifecycle orchestration, SIGINT handling, --setup, dashboard
+  cli.test.js              # 24 tests — full lifecycle orchestration, SIGINT handling, --setup, dashboard
   dashboard.test.js        # 14 tests — HTTP server start/stop, SSE events, stop callback
   logger.test.js           # 10 tests — real file I/O, level filtering, stderr fallback
   checks.test.js           # 4 tests — mock subprocess, mock git
-  checks-extended.test.js  # 9 tests — auth paths, disk space, branch warnings
-  claude.test.js           # 18 tests — fake child process, fake timers, abort signal
+  checks-extended.test.js  # 10 tests — auth paths, disk space, branch warnings
+  claude.test.js           # 21 tests — fake child process, fake timers, abort signal, Windows shell mode
   executor.test.js         # 7 tests — mocks claude, git, notifications, signal propagation
-  git.test.js              # 11 tests — real git against temp dirs (integration)
+  git.test.js              # 16 tests — real git against temp dirs (integration)
   git-extended.test.js     # 3 tests — getGitInstance, getHeadHash
   notifications.test.js    # 2 tests — mock node-notifier
   report.test.js           # 7 tests — mock fs, verify report format
@@ -128,13 +128,15 @@ No secrets or API keys — Claude Code handles its own authentication.
 ## Init Sequence (Order Matters)
 
 ```
-1. initLogger(projectDir)     ← MUST be first — everything logs
-2. initGit(projectDir)        ← Returns git instance for pre-checks
-3. runPreChecks(projectDir, git)  ← Validates environment before any work
-4. Interactive step selection  ← After checks pass
-5. Git setup (tag + branch)   ← After user confirms steps
-6. executeSteps(...)          ← Main work
-7. generateReport(...)        ← After execution completes
+1. initLogger(projectDir)        ← MUST be first — everything logs
+2. acquireLock(projectDir)       ← Prevents concurrent runs (lock file with PID)
+3. initGit(projectDir)           ← Returns git instance + stores projectRoot
+4. excludeEphemeralFiles()       ← Adds log/progress/url files to .git/info/exclude
+5. runPreChecks(projectDir, git) ← Validates environment before any work
+6. Interactive step selection    ← After checks pass
+7. Git setup (tag + branch)     ← After user confirms steps
+8. executeSteps(...)            ← Main work
+9. generateReport(...)          ← After execution completes
 ```
 
 Calling any module before `initLogger()` throws. Calling git operations before `initGit()` gives null reference errors.
@@ -155,6 +157,8 @@ Calling any module before `initLogger()` throws. Calling git operations before `
 | `SHUTDOWN_DELAY` | 3,000 ms | `dashboard.js` | Delay before closing server after final state |
 | `POLL_INTERVAL` | 1,000 ms | `dashboard-tui.js` | How often TUI polls progress file |
 | `EXIT_DELAY` | 5,000 ms | `dashboard-tui.js` | Delay before TUI auto-closes after run finishes |
+| `EPHEMERAL_FILES` | `['nightytidy-run.log', 'nightytidy-progress.json', 'nightytidy-dashboard.url']` | `git.js` | Files excluded from `fallbackCommit` staging and added to `.git/info/exclude` |
+| `LOCK_FILENAME` | `'nightytidy.lock'` | `cli.js` | Lock file name for concurrent-run prevention |
 
 ## Generated Files (in target project)
 
@@ -218,7 +222,7 @@ NightyTidy creates these files/artifacts in the project it runs against:
 
 1. Save current branch → create safety tag `nightytidy-before-YYYY-MM-DD-HHMM`
 2. Create run branch `nightytidy/run-YYYY-MM-DD-HHMM` → execute all steps
-3. Each step: if Claude doesn't commit, `fallbackCommit()` runs (`git add -A` + commit)
+3. Each step: if Claude doesn't commit, `fallbackCommit()` runs (`git add -A` excluding ephemeral files + commit)
 4. After all steps: generate report → commit → merge back with `--no-ff`
 5. On merge conflict: abort merge, leave run branch for manual resolution
 
@@ -264,13 +268,13 @@ bin/nightytidy.js
 ## Testing
 
 - **Framework**: Vitest v2, `vitest.config.js` for coverage thresholds only
-- **Tests** across 18 files — `npm test` to run, `npm run test:ci` for coverage enforcement
+- **Tests** across 17 files — `npm test` to run, `npm run test:ci` for coverage enforcement
 - **Coverage thresholds**: 90% statements, 80% branches, 80% functions — enforced by `test:ci`
 - **Philosophy**: Mock Claude Code subprocess, use real git against temp directories. Test failure paths harder than success paths
 - **Universal mock**: All test files mock `../src/logger.js` to prevent file I/O during tests (exception: `logger.test.js` tests the real logger)
 - **Integration tests**: `git.test.js`, `git-extended.test.js`, `integration.test.js` use real temp git repos — run slower but catch real issues
 - **Smoke tests**: `smoke.test.js` — 6 fast structural checks for deploy verification (< 3s)
-- **Contract tests**: `contracts.test.js` — 17 tests verifying each module's error handling contract matches this document
+- **Contract tests**: `contracts.test.js` — 20 tests verifying each module's error handling contract matches this document
 - **Temp dir cleanup**: Always use `robustCleanup()` from `test/helpers/cleanup.js` instead of raw `rm()` — Windows EBUSY from git file handles causes flaky failures otherwise
 - **Shared test factories**: Use `test/helpers/mocks.js` for mock process/git factories and `test/helpers/testdata.js` for report test data — don't duplicate these in individual test files
 - See `.claude/memory/testing.md` for detailed mock patterns and pitfalls

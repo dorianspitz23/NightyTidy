@@ -160,6 +160,7 @@ describe('contract: git.js — mergeRunBranch never throws on conflict', () => {
 
     const expectedExports = [
       'initGit',
+      'excludeEphemeralFiles',
       'getCurrentBranch',
       'createPreRunTag',
       'createRunBranch',

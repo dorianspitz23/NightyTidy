@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, writeFile } from 'fs/promises';
+import { mkdtemp, writeFile, readFile } from 'fs/promises';
+import { readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { robustCleanup } from './helpers/cleanup.js';
@@ -14,6 +15,7 @@ vi.mock('../src/logger.js', () => ({
 
 import {
   initGit,
+  excludeEphemeralFiles,
   createPreRunTag,
   createRunBranch,
   hasNewCommit,
@@ -213,5 +215,73 @@ describe('getCurrentBranch', () => {
     const newBranch = await getCurrentBranch();
     expect(newBranch).toBe('test-branch');
     expect(newBranch).not.toBe(originalBranch);
+  });
+});
+
+describe('excludeEphemeralFiles', () => {
+  it('adds ephemeral file entries to .git/info/exclude', () => {
+    excludeEphemeralFiles();
+
+    const excludePath = path.join(tempDir, '.git', 'info', 'exclude');
+    const content = readFileSync(excludePath, 'utf8');
+
+    expect(content).toContain('nightytidy-run.log');
+    expect(content).toContain('nightytidy-progress.json');
+    expect(content).toContain('nightytidy-dashboard.url');
+  });
+
+  it('is idempotent — calling twice does not duplicate entries', () => {
+    excludeEphemeralFiles();
+    excludeEphemeralFiles();
+
+    const excludePath = path.join(tempDir, '.git', 'info', 'exclude');
+    const content = readFileSync(excludePath, 'utf8');
+
+    const logCount = content.split('nightytidy-run.log').length - 1;
+    expect(logCount).toBe(1);
+  });
+
+  it('prevents ephemeral files from being staged by git add -A', async () => {
+    excludeEphemeralFiles();
+
+    // Create both a normal file and ephemeral files
+    await writeFile(path.join(tempDir, 'code.js'), 'console.log("hello")');
+    await writeFile(path.join(tempDir, 'nightytidy-run.log'), 'log content');
+    await writeFile(path.join(tempDir, 'nightytidy-progress.json'), '{}');
+
+    await tempGit.add('-A');
+    const status = await tempGit.status();
+
+    // Normal file should be staged, ephemeral files should not
+    expect(status.staged).toContain('code.js');
+    expect(status.staged).not.toContain('nightytidy-run.log');
+    expect(status.staged).not.toContain('nightytidy-progress.json');
+  });
+});
+
+describe('fallbackCommit — ephemeral file exclusion', () => {
+  it('excludes nightytidy-run.log from commits', async () => {
+    await writeFile(path.join(tempDir, 'code.js'), 'console.log("hello")');
+    await writeFile(path.join(tempDir, 'nightytidy-run.log'), 'log content');
+
+    await fallbackCommit(1, 'test');
+
+    // Verify the commit includes code.js but not the log file
+    const show = await tempGit.raw(['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']);
+    expect(show).toContain('code.js');
+    expect(show).not.toContain('nightytidy-run.log');
+  });
+
+  it('skips commit when only ephemeral files changed', async () => {
+    await writeFile(path.join(tempDir, 'nightytidy-run.log'), 'log content');
+    await writeFile(path.join(tempDir, 'nightytidy-progress.json'), '{}');
+
+    const hashBefore = await getHeadHash();
+    const result = await fallbackCommit(1, 'test');
+
+    expect(result).toBe(false);
+
+    const hashAfter = await getHeadHash();
+    expect(hashAfter).toBe(hashBefore);
   });
 });

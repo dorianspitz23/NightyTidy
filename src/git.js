@@ -1,7 +1,12 @@
 import simpleGit from 'simple-git';
+import { readFileSync, appendFileSync, existsSync } from 'fs';
+import path from 'path';
 import { info, debug, warn } from './logger.js';
 
+const EPHEMERAL_FILES = ['nightytidy-run.log', 'nightytidy-progress.json', 'nightytidy-dashboard.url'];
+
 let git = null;
+let projectRoot = null;
 
 function getTimestamp() {
   const now = new Date();
@@ -14,8 +19,29 @@ function getTimestamp() {
 }
 
 export function initGit(projectDir) {
+  projectRoot = projectDir;
   git = simpleGit(projectDir);
   return git;
+}
+
+export function excludeEphemeralFiles() {
+  try {
+    const excludePath = path.join(projectRoot, '.git', 'info', 'exclude');
+
+    let content = '';
+    if (existsSync(excludePath)) {
+      content = readFileSync(excludePath, 'utf8');
+    }
+
+    const toAdd = EPHEMERAL_FILES.filter(f => !content.includes(f));
+    if (toAdd.length === 0) return;
+
+    const separator = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+    appendFileSync(excludePath, separator + '# NightyTidy ephemeral files\n' + toAdd.join('\n') + '\n', 'utf8');
+    debug('Added ephemeral file exclusions to .git/info/exclude');
+  } catch (err) {
+    warn(`Could not add ephemeral file exclusions: ${err.message}`);
+  }
 }
 
 export async function getCurrentBranch() {
@@ -59,10 +85,14 @@ export async function hasNewCommit(sinceHash) {
 }
 
 export async function fallbackCommit(stepNumber, stepName) {
-  await git.add('-A');
-  const status = await git.status();
+  // Exclude NightyTidy's ephemeral files — staging them causes the log file
+  // to be tracked by git, and subsequent Claude Code subprocess git operations
+  // can reset tracked files, losing log entries for later steps.
+  const excludes = EPHEMERAL_FILES.map(f => `:!${f}`);
+  await git.raw(['add', '-A', '--', '.', ...excludes]);
 
-  if (status.staged.length === 0 && status.files.length === 0) {
+  const status = await git.status();
+  if (status.staged.length === 0) {
     info(`Step ${stepNumber}: No changes detected — skipping fallback commit`);
     return false;
   }

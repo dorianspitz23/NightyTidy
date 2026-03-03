@@ -59,6 +59,7 @@ vi.mock('../src/checks.js', () => ({
 
 vi.mock('../src/git.js', () => ({
   initGit: vi.fn().mockReturnValue({}),
+  excludeEphemeralFiles: vi.fn(),
   getCurrentBranch: vi.fn().mockResolvedValue('main'),
   createPreRunTag: vi.fn().mockResolvedValue('nightytidy-before-2026-03-01-0100'),
   createRunBranch: vi.fn().mockResolvedValue('nightytidy/run-2026-03-01-0100'),
