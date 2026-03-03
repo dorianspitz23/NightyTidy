@@ -206,7 +206,7 @@ NightyTidy creates these files/artifacts in the project it runs against:
 - Prompts > 8000 chars → stdin pipe; shorter → `-p` flag (`STDIN_THRESHOLD`)
 - **Permissions**: All subprocess calls include `--dangerously-skip-permissions`. Required because non-interactive `claude -p` has no TTY to approve tool permissions (Bash, Edit, Write, etc.). NightyTidy is the permission layer — it controls prompts and operates on a safety branch.
 - Success = exit code 0 AND non-empty stdout (whitespace-only = failure)
-- Windows ENOENT fallback: re-spawn with `shell: true`
+- **Windows shell mode**: Always spawns with `shell: true` on Windows (claude is a `.cmd` script). Both `claude.js` and `checks.js` use `platform() === 'win32'` to set the shell flag upfront — no ENOENT fallback needed.
 - **CLAUDECODE env var**: Claude Code sets this to prevent nested sessions. Both `claude.js` and `checks.js` strip it via `cleanEnv()` before spawning `claude` subprocesses. NightyTidy only uses non-interactive `claude -p` calls, so nesting is safe.
 - **Abort signal propagation**: `runPrompt()` accepts `options.signal` (AbortSignal). The signal is threaded through `runOnce()` → `waitForChild()`, which kills the subprocess immediately on abort. Retry sleeps also short-circuit on abort. The executor passes the signal to both improvement and doc-update `runPrompt()` calls. The dashboard's Stop button triggers `abortController.abort()` via the `onStop` callback, which propagates all the way down to kill the active subprocess.
 - **Auth check**: Two-phase — silent `claude -p "Say OK"` with `stdio: ['ignore', 'pipe', 'pipe']` first, then interactive `stdio: 'inherit'` fallback if sign-in is needed

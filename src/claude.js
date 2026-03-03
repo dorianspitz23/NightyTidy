@@ -122,36 +122,20 @@ function waitForChild(child, timeoutMs, { verbose = true, signal } = {}) {
 }
 
 async function runOnce(prompt, cwd, timeoutMs, signal) {
-  let child;
-  let useShell = false;
+  // On Windows, always use shell — 'claude' is a .cmd script that
+  // requires shell interpretation. Spawning without shell always gets
+  // ENOENT, and the failed-spawn + shell-retry pattern can exhaust
+  // Windows process resources (STATUS_DLL_INIT_FAILED / 0xC0000142).
+  const useShell = platform() === 'win32';
 
+  let child;
   try {
-    child = spawnClaude(prompt, cwd, false);
-  } catch {
-    // If spawn fails immediately, try with shell on Windows
-    if (platform() === 'win32') {
-      useShell = true;
-      try {
-        child = spawnClaude(prompt, cwd, true);
-        warn('Claude Code started using shell mode (Windows compatibility)');
-      } catch (err) {
-        return { success: false, output: '', error: err.message, exitCode: -1 };
-      }
-    } else {
-      return { success: false, output: '', error: 'Failed to start Claude Code. Ensure the "claude" command is installed and on your PATH.', exitCode: -1 };
-    }
+    child = spawnClaude(prompt, cwd, useShell);
+  } catch (err) {
+    return { success: false, output: '', error: err.message || 'Failed to start Claude Code', exitCode: -1 };
   }
 
   const result = await waitForChild(child, timeoutMs, { signal });
-
-  // Windows ENOENT fallback — retry with shell: true
-  if (result._errorCode === 'ENOENT' && platform() === 'win32' && !useShell) {
-    warn('Claude Code command not found — retrying with shell mode (Windows)');
-    const shellChild = spawnClaude(prompt, cwd, true);
-    const shellResult = await waitForChild(shellChild, timeoutMs, { verbose: false, signal });
-    delete shellResult._errorCode;
-    return shellResult;
-  }
 
   delete result._errorCode;
   return result;

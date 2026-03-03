@@ -9,6 +9,10 @@ vi.mock('child_process', () => ({
   spawn: vi.fn(),
 }));
 
+vi.mock('os', () => ({
+  platform: vi.fn(() => 'linux'),
+}));
+
 vi.mock('../src/logger.js', () => ({
   info: vi.fn(),
   debug: vi.fn(),
@@ -21,6 +25,7 @@ vi.mock('../src/logger.js', () => ({
 // ---------------------------------------------------------------------------
 
 import { spawn } from 'child_process';
+import { platform } from 'os';
 import { runPrompt } from '../src/claude.js';
 
 // ---------------------------------------------------------------------------
@@ -87,6 +92,7 @@ describe('runPrompt', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.clearAllMocks();
+    platform.mockReturnValue('linux');
   });
 
   afterEach(() => {
@@ -521,6 +527,65 @@ describe('runPrompt', () => {
       expect(result.success).toBe(false);
       expect(result.attempts).toBe(1);
       expect(spawn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Windows shell mode
+  // -----------------------------------------------------------------------
+  describe('Windows shell mode', () => {
+    it('uses shell: true on Windows to avoid ENOENT from .cmd resolution', async () => {
+      platform.mockReturnValue('win32');
+
+      setupSpawnSequence((child) => {
+        child.emitStdout('output');
+        child.emitClose(0);
+      });
+
+      await runPrompt('test', '/tmp', FAST_OPTIONS);
+
+      expect(spawn).toHaveBeenCalledWith(
+        'claude',
+        ['-p', 'test', '--dangerously-skip-permissions'],
+        expect.objectContaining({ shell: true }),
+      );
+    });
+
+    it('does not use shell on non-Windows', async () => {
+      platform.mockReturnValue('linux');
+
+      setupSpawnSequence((child) => {
+        child.emitStdout('output');
+        child.emitClose(0);
+      });
+
+      await runPrompt('test', '/tmp', FAST_OPTIONS);
+
+      expect(spawn).toHaveBeenCalledWith(
+        'claude',
+        ['-p', 'test', '--dangerously-skip-permissions'],
+        expect.objectContaining({ shell: false }),
+      );
+    });
+
+    it('spawns only once per attempt on Windows (no ENOENT double-spawn)', async () => {
+      platform.mockReturnValue('win32');
+
+      setupSpawnSequence(
+        (child) => { child.emitClose(1); },
+        (child) => {
+          child.emitStdout('ok');
+          child.emitClose(0);
+        },
+      );
+
+      const promise = runPrompt('test', '/tmp', FAST_OPTIONS);
+      await vi.advanceTimersByTimeAsync(15_000);
+      const result = await promise;
+
+      expect(result.success).toBe(true);
+      // Exactly 2 spawn calls — one per attempt, no ENOENT retry doubling
+      expect(spawn).toHaveBeenCalledTimes(2);
     });
   });
 });
