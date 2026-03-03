@@ -1,19 +1,60 @@
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import path from 'path';
+
 import { Command } from 'commander';
 import checkbox from '@inquirer/checkbox';
 import ora from 'ora';
 import chalk from 'chalk';
-import path from 'path';
 
 import { initLogger, info, error as logError, debug, warn } from './logger.js';
 import { runPreChecks } from './checks.js';
-import { initGit, getCurrentBranch, createPreRunTag, createRunBranch, mergeRunBranch, getGitInstance } from './git.js';
+import { initGit, excludeEphemeralFiles, getCurrentBranch, createPreRunTag, createRunBranch, mergeRunBranch, getGitInstance } from './git.js';
 import { runPrompt } from './claude.js';
 import { STEPS, CHANGELOG_PROMPT } from './prompts/steps.js';
-import { executeSteps } from './executor.js';
+import { executeSteps, SAFETY_PREAMBLE } from './executor.js';
 import { notify } from './notifications.js';
 import { generateReport, formatDuration, getVersion } from './report.js';
 import { setupProject } from './setup.js';
 import { startDashboard, updateDashboard, stopDashboard, scheduleShutdown } from './dashboard.js';
+
+const LOCK_FILENAME = 'nightytidy.lock';
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function acquireLock(projectDir) {
+  const lockPath = path.join(projectDir, LOCK_FILENAME);
+
+  if (existsSync(lockPath)) {
+    try {
+      const lockData = JSON.parse(readFileSync(lockPath, 'utf8'));
+      if (lockData.pid && isProcessAlive(lockData.pid)) {
+        throw new Error(
+          `Another NightyTidy run is already in progress (PID ${lockData.pid}, started ${lockData.started}).\n` +
+          `If this is wrong, delete ${LOCK_FILENAME} and try again.`
+        );
+      }
+    } catch (err) {
+      if (err.message.includes('already in progress')) throw err;
+      // Corrupt lock file — treat as stale
+    }
+    unlinkSync(lockPath);
+    warn('Removed stale lock file from a previous run');
+  }
+
+  writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started: new Date().toISOString() }));
+
+  // Auto-remove on any exit
+  process.on('exit', () => {
+    try { unlinkSync(lockPath); } catch { /* already gone */ }
+  });
+}
 
 function buildStepCallbacks(spinner, selected, dashState) {
   const stepStartTimes = new Map();
@@ -196,7 +237,10 @@ export async function run() {
     initLogger(projectDir);
     info('NightyTidy starting');
 
-    // 2. List steps and exit (no git or pre-checks needed)
+    // 2. Prevent concurrent runs
+    acquireLock(projectDir);
+
+    // 3. List steps and exit (no git or pre-checks needed)
     if (opts.list) {
       STEPS.forEach(step => console.log(`${step.number}. ${step.name}`));
       process.exit(0);
@@ -216,6 +260,7 @@ export async function run() {
 
     // 4. Initialize git and run pre-checks
     const git = initGit(projectDir);
+    excludeEphemeralFiles();
     await runPreChecks(projectDir, git);
 
     // 4. Step selector
@@ -330,7 +375,7 @@ export async function run() {
     info('Generating narrated changelog...');
     spinner = ora({ text: 'Generating changelog...', color: 'cyan' }).start();
 
-    const changelogResult = await runPrompt(CHANGELOG_PROMPT, projectDir, {
+    const changelogResult = await runPrompt(SAFETY_PREAMBLE + CHANGELOG_PROMPT, projectDir, {
       label: 'Narrated changelog',
     });
     const narration = changelogResult.success ? changelogResult.output : null;

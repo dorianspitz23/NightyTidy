@@ -4,6 +4,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
 
+vi.mock('fs', () => ({
+  existsSync: vi.fn(() => false),
+  readFileSync: vi.fn(() => '{}'),
+  writeFileSync: vi.fn(),
+  unlinkSync: vi.fn(),
+}));
+
 vi.mock('commander', () => {
   const program = {
     name: vi.fn().mockReturnThis(),
@@ -76,6 +83,7 @@ vi.mock('../src/prompts/steps.js', () => ({
 
 vi.mock('../src/executor.js', () => ({
   executeSteps: vi.fn(),
+  SAFETY_PREAMBLE: '',
 }));
 
 vi.mock('../src/notifications.js', () => ({

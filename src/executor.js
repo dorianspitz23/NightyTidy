@@ -4,6 +4,16 @@ import { DOC_UPDATE_PROMPT } from './prompts/steps.js';
 import { notify } from './notifications.js';
 import { info, warn, error as logError } from './logger.js';
 
+// Safety preamble prepended to every Claude subprocess prompt.
+// Prevents destructive operations that conflict with NightyTidy's orchestration.
+export const SAFETY_PREAMBLE =
+  'IMPORTANT CONSTRAINTS (from the NightyTidy orchestrator — always follow these):\n' +
+  '- Do NOT delete any existing files. Create new files or modify existing ones only.\n' +
+  '- Do NOT create, switch, or merge git branches. The orchestrator manages all branching.\n' +
+  '- Do NOT run destructive git commands (reset, clean, checkout, rm).\n' +
+  '- Commit your changes with a descriptive message when done.\n' +
+  '---\n\n';
+
 function makeStepResult(step, status, result, duration) {
   return {
     step: { number: step.number, name: step.name },
@@ -38,7 +48,7 @@ export async function executeSteps(selectedSteps, projectDir, { signal, onStepSt
     const preStepHash = await getHeadHash();
 
     // Run improvement prompt
-    const result = await runPrompt(step.prompt, projectDir, {
+    const result = await runPrompt(SAFETY_PREAMBLE + step.prompt, projectDir, {
       label: `Step ${step.number} — ${step.name}`,
       signal,
     });
@@ -57,7 +67,7 @@ export async function executeSteps(selectedSteps, projectDir, { signal, onStepSt
     }
 
     // Run doc update prompt
-    const docResult = await runPrompt(DOC_UPDATE_PROMPT, projectDir, {
+    const docResult = await runPrompt(SAFETY_PREAMBLE + DOC_UPDATE_PROMPT, projectDir, {
       label: `Step ${step.number} — doc update`,
       signal,
     });

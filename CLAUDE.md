@@ -167,6 +167,7 @@ NightyTidy creates these files/artifacts in the project it runs against:
 | `nightytidy-dashboard.url` | Dashboard URL — Claude reads this and shares with user | No (deleted on stop) |
 | `NIGHTYTIDY-REPORT.md` | Run summary with step results | Yes (on run branch) |
 | `CLAUDE.md` (appended section) | "NightyTidy — Last Run" with undo tag | Yes (on run branch) |
+| `nightytidy.lock` | Prevents concurrent runs (PID + timestamp) | No (auto-removed on exit) |
 | `nightytidy-before-*` git tag | Safety snapshot before run | Yes (tag) |
 | `nightytidy/run-*` git branch | All changes from this run | Yes (branch) |
 
@@ -209,6 +210,8 @@ NightyTidy creates these files/artifacts in the project it runs against:
 - **Windows shell mode**: Always spawns with `shell: true` on Windows (claude is a `.cmd` script). Both `claude.js` and `checks.js` use `platform() === 'win32'` to set the shell flag upfront — no ENOENT fallback needed.
 - **CLAUDECODE env var**: Claude Code sets this to prevent nested sessions. Both `claude.js` and `checks.js` strip it via `cleanEnv()` before spawning `claude` subprocesses. NightyTidy only uses non-interactive `claude -p` calls, so nesting is safe.
 - **Abort signal propagation**: `runPrompt()` accepts `options.signal` (AbortSignal). The signal is threaded through `runOnce()` → `waitForChild()`, which kills the subprocess immediately on abort. Retry sleeps also short-circuit on abort. The executor passes the signal to both improvement and doc-update `runPrompt()` calls. The dashboard's Stop button triggers `abortController.abort()` via the `onStop` callback, which propagates all the way down to kill the active subprocess.
+- **Safety preamble**: Every prompt (improvement, doc update, changelog) is prepended with `SAFETY_PREAMBLE` from `executor.js`. Prevents Claude from deleting files, creating/switching branches, or running destructive git commands. These are orchestrator responsibilities, not subprocess responsibilities.
+- **Lock file**: `acquireLock()` in `cli.js` creates `nightytidy.lock` (PID + timestamp) to prevent concurrent runs on the same project. Auto-removed via `process.on('exit')`. Stale locks (dead PID) are cleaned up automatically.
 - **Auth check**: Two-phase — silent `claude -p "Say OK"` with `stdio: ['ignore', 'pipe', 'pipe']` first, then interactive `stdio: 'inherit'` fallback if sign-in is needed
 
 ### Git Workflow
