@@ -1,35 +1,33 @@
 # Project Memory — Index
 
-NightyTidy: automated overnight codebase improvement via Claude Code subprocess orchestration. See CLAUDE.md for full rules and conventions.
+NightyTidy: automated overnight codebase improvement via Claude Code subprocess orchestration. See CLAUDE.md for rules.
 
 ## Current State
 
 - **Version**: 0.1.0
-- **Test count**: 135 (15 test files, all passing)
-- **Source files**: 9 modules in `src/`, 1 entry point in `bin/`
-- **Prompt count**: 28 improvement steps + DOC_UPDATE_PROMPT + CHANGELOG_PROMPT
-- **Last major change**: Initial implementation (commit `36e47ee`)
-- **Technical debt**: Minimal — no config file, prompts source not committed
+- **Test count**: 188 (17 test files, all passing)
+- **Coverage**: above thresholds (90/80/80)
+- **Last major change**: GitHub-readiness — README, LICENSE, 4 bug fixes, 6 new tests
+
+## Recent Changes
+
+- README.md and LICENSE (MIT) added
+- Bug fixes: empty repo crash, tag/branch collision retry (up to 10), abort cleanup, dashboard file cleanup
+- Documentation overhaul: three-tier system (Tier 1 CLAUDE.md, Tier 2 memory files, Tier 3 human docs)
 
 ## Topic Files
 
 | File | When to load |
 |------|-------------|
 | `testing.md` | Writing or fixing tests |
-| `prompts.md` | Modifying or adding improvement prompts |
-| `git-workflow.md` | Changing branching, tagging, or merge logic |
-| `cli-lifecycle.md` | Modifying the CLI run() orchestration |
 | `claude-integration.md` | Changing Claude Code subprocess handling |
+| `cli-lifecycle.md` | Modifying the CLI run() orchestration |
 | `executor-loop.md` | Modifying step execution or doc-update flow |
+| `git-workflow.md` | Changing branching, tagging, or merge logic |
+| `dashboard.md` | Changing progress display (HTTP, TUI, SSE) |
 | `report-generation.md` | Changing report format or CLAUDE.md auto-update |
+| `prompts.md` | Modifying or adding improvement prompts |
 | `pitfalls.md` | Debugging platform-specific or subprocess issues |
-
-## Cross-Cutting Patterns
-
-- **Every module imports logger** — `import { info, warn, error, debug } from './logger.js'`
-- **Error contracts are per-module** — see CLAUDE.md error handling table; never change without updating callers
-- **Singleton init pattern** — `logger.js` and `git.js` have module-level state; init once in `cli.js`
-- **Tests always mock logger** — prevents file I/O; omitting this crashes the test
 
 ## Memory File Rules
 

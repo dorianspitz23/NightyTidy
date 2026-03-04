@@ -1,64 +1,57 @@
 # Claude Code Integration — Tier 2 Reference
 
-Assumes CLAUDE.md loaded. Subprocess wrapper in `src/claude.js` (187 lines).
+Assumes CLAUDE.md loaded. Subprocess wrapper in `src/claude.js` (193 lines).
+
+## Constants
+
+| Constant | Value |
+|----------|-------|
+| `DEFAULT_TIMEOUT` | 45 min (2,700,000 ms) — overridable via `--timeout` |
+| `DEFAULT_RETRIES` | 3 (total attempts = 4) |
+| `RETRY_DELAY` | 10,000 ms between retries |
+| `STDIN_THRESHOLD` | 8,000 chars → switches to stdin pipe mode |
 
 ## Spawn Modes
 
-Short prompts (< 8000 chars): `spawn('claude', ['-p', prompt], { stdio: ['ignore', 'pipe', 'pipe'] })`
-Long prompts (>= 8000 chars): `spawn('claude', [], { stdio: ['pipe', 'pipe', 'pipe'] })` + stdin write
+- **Short** (< 8000 chars): `-p "prompt"` flag, stdin `'ignore'`
+- **Long** (≥ 8000 chars): stdin `'pipe'`, write prompt + end
 
-## Windows Handling
+## Platform Rules
 
-1. All spawns use `shell: platform() === 'win32'` initially
-2. On ENOENT error (Windows): re-spawn with `shell: true`
-3. The ENOENT fallback logic in `runOnce()` is complex — duplicates timeout/event handling
+- **Windows**: Always `shell: true` (claude is `.cmd`). Set upfront — no ENOENT fallback. Avoids 0xC0000142 under sustained use.
+- **CLAUDECODE env var**: Stripped via `cleanEnv()` before every spawn. Prevents nesting block.
+- **Permissions**: All calls include `--dangerously-skip-permissions` (no TTY for tool approval).
+
+## Safety Preamble
+
+`SAFETY_PREAMBLE` from `executor.js` prepended to every prompt. Prevents Claude from: deleting files, creating/switching branches, running destructive git commands.
 
 ## Success Criteria
 
 `success = (exitCode === 0) && (stdout.trim().length > 0)`
 
-- Exit 0 with empty/whitespace stdout → treated as failure → triggers retry
-- Non-zero exit → failure → triggers retry
+Exit 0 with empty stdout → failure → retry. Non-zero exit → failure → retry.
 
-## Result Object Shape
+## Result Object
 
 ```js
-{
-  success: boolean,
-  output: string,      // stdout content
-  error: string|null,  // error message or null on success
-  exitCode: number,    // -1 for internal errors (timeout, spawn failure)
-  duration: number,    // ms from first attempt to final result
-  attempts: number,    // 1-based count of attempts made
-}
+{ success, output, error, exitCode, duration, attempts }
 ```
 
-## Timeout Behavior
+`exitCode: -1` for internal errors. `attempts`: 1-based count.
 
-1. `setTimeout` fires after `timeoutMs`
-2. `child.kill()` called immediately
-3. 5-second grace period, then `child.kill('SIGKILL')`
-4. Resolves with `{ success: false, error: 'Claude Code timed out...' }`
+## Timeout → Retry → Abort
 
-## Retry Flow
+- **Timeout**: SIGTERM → 5s grace → SIGKILL → `{ success: false, error: 'timed out' }`
+- **Retry**: `attempt 1 → fail → sleep(10s) → ... → attempt 4 → return failure`
+- **Abort signal**: threads `runPrompt → runOnce → waitForChild → child.kill()`. Retry sleep short-circuits. Already-aborted signal skips spawn entirely.
 
-```
-attempt 1 → fail → sleep(10s) → attempt 2 → fail → sleep(10s) → attempt 3 → fail → sleep(10s) → attempt 4 → fail → return failure
-```
+## Auth Check (in checks.js)
 
-Total attempts = `retries + 1` (default: 4 total).
+Two-phase: silent `claude -p "Say OK"` (30s timeout) → interactive `stdio: 'inherit'` fallback.
 
-## Public API
+## API
 
-Single export: `runPrompt(prompt, cwd, options?)`
+Export: `runPrompt(prompt, cwd, { timeout?, retries?, label?, signal? })`
 
-Options:
-- `timeout` — override DEFAULT_TIMEOUT
-- `retries` — override DEFAULT_RETRIES
-- `label` — descriptive name for logging
-
-## Internal Functions (not exported)
-
-- `sleep(ms)` — Promise-based delay
-- `spawnClaude(prompt, cwd, useShell)` — creates child process
-- `runOnce(prompt, cwd, timeoutMs)` — single attempt with timeout
+Internal: `cleanEnv()`, `sleep(ms, signal)`, `spawnClaude()`, `waitForChild()`, `runOnce()`

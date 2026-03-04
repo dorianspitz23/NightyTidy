@@ -1,6 +1,6 @@
 # Report Generation — Tier 2 Reference
 
-Assumes CLAUDE.md loaded. Report logic in `src/report.js` (145 lines).
+Assumes CLAUDE.md loaded. Report logic in `src/report.js` (158 lines).
 
 ## Exports
 
@@ -8,6 +8,7 @@ Assumes CLAUDE.md loaded. Report logic in `src/report.js` (145 lines).
 |----------|---------|
 | `generateReport(results, narration, metadata)` | Writes NIGHTYTIDY-REPORT.md + updates CLAUDE.md |
 | `formatDuration(ms)` | Format milliseconds to human-readable string |
+| `getVersion()` | Returns version from package.json (lazy-cached, defaults to '0.1.0' on error) |
 
 ## Report Structure (NIGHTYTIDY-REPORT.md)
 
@@ -24,7 +25,7 @@ Assumes CLAUDE.md loaded. Report logic in `src/report.js` (145 lines).
 ## Step Results
 | # | Step | Status | Duration | Attempts |
 
-## Failed Steps          ← Only present if failedCount > 0
+## Failed Steps          ← Only if failedCount > 0
 ### Step N: Name
 - Error, Attempts, Suggestion
 
@@ -34,26 +35,18 @@ Assumes CLAUDE.md loaded. Report logic in `src/report.js` (145 lines).
 
 ## Narration Handling
 
-- If `narration` param is truthy → use it as-is
-- If null/empty → `fallbackNarration(results)` generates a generic paragraph
-- Fallback mentions step counts and suggests checking the log
+- Truthy `narration` param → use as-is
+- Null/empty → `fallbackNarration(results)` generates generic paragraph with step counts
 
 ## CLAUDE.md Auto-Update
 
-`updateClaudeMd(metadata)` appends/replaces a `## NightyTidy — Last Run` section:
+`updateClaudeMd(metadata)` manages a `## NightyTidy — Last Run` section:
 
-```markdown
-## NightyTidy — Last Run
+1. CLAUDE.md exists + has marker → find section boundaries, replace in-place
+2. CLAUDE.md exists, no marker → append section at end
+3. CLAUDE.md doesn't exist → create new file with section
 
-Last run: YYYY-MM-DD. To undo, reset to git tag `nightytidy-before-*`.
-```
-
-Logic:
-1. If CLAUDE.md exists and contains `## NightyTidy`:
-   - Find marker index, find next `\n## ` after it
-   - Replace that section (preserves content before and after)
-2. If exists but no marker → append section at end
-3. If doesn't exist → create new file with just the section
+Content: last run date + undo tag reference.
 
 ## formatDuration(ms)
 
@@ -61,13 +54,18 @@ Logic:
 - `< 1 hour`: `"Xm YYs"` (seconds zero-padded)
 - Example: `3720000` → `"1h 02m"`, `30000` → `"0m 30s"`
 
-**Note**: `cli.js` imports `formatDuration` from `report.js` for its terminal summary (consolidated — no longer duplicated).
+Imported by `cli.js` for terminal summary (single source — no duplication).
 
 ## Metadata Shape
 
-`{ projectDir, branchName, tagName, originalBranch, startTime, endTime }` — all strings except timestamps (numbers from `Date.now()`).
+```js
+{ projectDir, branchName, tagName, originalBranch, startTime, endTime }
+```
+
+All strings except `startTime`/`endTime` (numbers from `Date.now()`).
 
 ## Error Handling
 
-- `updateClaudeMd` wraps everything in try/catch → warns but never throws
-- `report.js` overall: warns but never throws (per error contract in CLAUDE.md)
+- `getVersion()` swallows read errors → defaults to '0.1.0'
+- `updateClaudeMd()` wraps in try/catch → warns but never throws
+- `generateReport()` overall: warns but never throws (per error contract)
