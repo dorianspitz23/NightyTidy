@@ -142,25 +142,6 @@ No secrets or API keys — Claude Code handles its own authentication.
 
 Calling any module before `initLogger()` throws. Calling git operations before `initGit()` gives null reference errors.
 
-## Key Constants (internal — not exported)
-
-| Constant | Value | Location | Affects |
-|----------|-------|----------|---------|
-| `DEFAULT_TIMEOUT` | 45 min (2,700,000 ms) | `claude.js` | How long each Claude prompt can run (overridable via `--timeout`) |
-| `DEFAULT_RETRIES` | 3 | `claude.js` | Retry count per prompt (total attempts = retries + 1) |
-| `RETRY_DELAY` | 10,000 ms | `claude.js` | Delay between retry attempts |
-| `STDIN_THRESHOLD` | 8,000 chars | `claude.js` | Prompts above this use stdin pipe instead of `-p` flag |
-| `TIMEOUT_MESSAGE` | `'Claude Code timed out after 45 minutes'` | `claude.js` | Error message on timeout |
-| `AUTH_TIMEOUT_MS` | 30,000 ms | `checks.js` | Timeout for Claude auth check |
-| `CRITICAL_DISK_MB` | 100 MB | `checks.js` | Disk space below this = fatal error |
-| `LOW_DISK_MB` | 1,024 MB | `checks.js` | Disk space below this = warning |
-| `LEVELS` | `{ debug:0, info:1, warn:2, error:3 }` | `logger.js` | Log level filtering |
-| `SHUTDOWN_DELAY` | 3,000 ms | `dashboard.js` | Delay before closing server after final state |
-| `POLL_INTERVAL` | 1,000 ms | `dashboard-tui.js` | How often TUI polls progress file |
-| `EXIT_DELAY` | 5,000 ms | `dashboard-tui.js` | Delay before TUI auto-closes after run finishes |
-| `EPHEMERAL_FILES` | `['nightytidy-run.log', 'nightytidy-progress.json', 'nightytidy-dashboard.url']` | `git.js` | Files excluded from `fallbackCommit` staging and added to `.git/info/exclude` |
-| `LOCK_FILENAME` | `'nightytidy.lock'` | `cli.js` | Lock file name for concurrent-run prevention |
-
 ## Generated Files (in target project)
 
 NightyTidy creates these files/artifacts in the project it runs against:
@@ -205,35 +186,6 @@ NightyTidy creates these files/artifacts in the project it runs against:
 | `report.js` | **Warns but never throws** (report failure must not crash a run) |
 | `setup.js` | **Writes to filesystem** → returns `'created'`/`'appended'`/`'updated'` |
 | `cli.js` `run()` | **Top-level try/catch** catches everything |
-
-### Claude Code Integration
-
-- Timeout: 45 min per prompt (`DEFAULT_TIMEOUT`, overridable via `--timeout <minutes>`), retries: 3 (`DEFAULT_RETRIES`), 10s delay
-- Prompts > 8000 chars → stdin pipe; shorter → `-p` flag (`STDIN_THRESHOLD`)
-- **Permissions**: All subprocess calls include `--dangerously-skip-permissions`. Required because non-interactive `claude -p` has no TTY to approve tool permissions (Bash, Edit, Write, etc.). NightyTidy is the permission layer — it controls prompts and operates on a safety branch.
-- Success = exit code 0 AND non-empty stdout (whitespace-only = failure)
-- **Windows shell mode**: Always spawns with `shell: true` on Windows (claude is a `.cmd` script). Both `claude.js` and `checks.js` use `platform() === 'win32'` to set the shell flag upfront — no ENOENT fallback needed.
-- **CLAUDECODE env var**: Claude Code sets this to prevent nested sessions. Both `claude.js` and `checks.js` strip it via `cleanEnv()` before spawning `claude` subprocesses. NightyTidy only uses non-interactive `claude -p` calls, so nesting is safe.
-- **Abort signal propagation**: `runPrompt()` accepts `options.signal` (AbortSignal). The signal is threaded through `runOnce()` → `waitForChild()`, which kills the subprocess immediately on abort. Retry sleeps also short-circuit on abort. The executor passes the signal to both improvement and doc-update `runPrompt()` calls. The dashboard's Stop button triggers `abortController.abort()` via the `onStop` callback, which propagates all the way down to kill the active subprocess.
-- **Safety preamble**: Every prompt (improvement, doc update, changelog) is prepended with `SAFETY_PREAMBLE` from `executor.js`. Prevents Claude from deleting files, creating/switching branches, or running destructive git commands. These are orchestrator responsibilities, not subprocess responsibilities.
-- **Lock file**: `acquireLock()` in `cli.js` creates `nightytidy.lock` (PID + timestamp) to prevent concurrent runs on the same project. Auto-removed via `process.on('exit')`. Stale locks (dead PID) are cleaned up automatically.
-- **Auth check**: Two-phase — silent `claude -p "Say OK"` with `stdio: ['ignore', 'pipe', 'pipe']` first, then interactive `stdio: 'inherit'` fallback if sign-in is needed
-
-### Git Workflow
-
-1. Save current branch → create safety tag `nightytidy-before-YYYY-MM-DD-HHMM`
-2. Create run branch `nightytidy/run-YYYY-MM-DD-HHMM` → execute all steps
-3. Each step: if Claude doesn't commit, `fallbackCommit()` runs (`git add -A` excluding ephemeral files + commit)
-4. After all steps: generate report → commit → merge back with `--no-ff`
-5. On merge conflict: abort merge, leave run branch for manual resolution
-
-### Execution Flow
-
-For each selected step, the executor runs TWO prompts sequentially:
-1. The improvement prompt (from `steps.js`)
-2. `DOC_UPDATE_PROMPT` — asks Claude to update docs if needed (failure is non-fatal)
-
-After all steps: one final `CHANGELOG_PROMPT` generates a narrative summary.
 
 ### Module Dependency Graph
 
@@ -311,5 +263,6 @@ When you learn something worth preserving, put it in the right place:
 | `cli-lifecycle.md` | Modifying the CLI run() orchestration |
 | `claude-integration.md` | Changing Claude Code subprocess handling |
 | `executor-loop.md` | Modifying step execution or doc-update flow |
+| `dashboard.md` | Changing progress display (HTTP, TUI, SSE) |
 | `report-generation.md` | Changing report format or CLAUDE.md auto-update |
 | `pitfalls.md` | Debugging platform-specific or subprocess issues |

@@ -2,56 +2,61 @@
 
 Assumes CLAUDE.md loaded. Platform-specific issues, bugs, and gotchas.
 
-## Windows-Specific Issues
+## Windows
 
-### ENOENT on spawn
-- `spawn('claude', ...)` throws ENOENT on some Windows setups
-- Fallback: re-spawn with `shell: true`
-- Affects both `checks.js` (uses own `runCommand`) and `claude.js` (uses `spawnClaude`)
-- `checks.js` always passes `shell: platform() === 'win32'` upfront
-- `claude.js` tries without shell first, falls back on ENOENT
+### spawn Shell Mode (CRITICAL)
+`spawn('claude', ...)` without `shell: true` gets ENOENT on Windows — `claude` is a `.cmd` file. Both `claude.js` and `checks.js` set `shell: platform() === 'win32'` upfront. **Never** use spawn-then-ENOENT-retry — causes 0xC0000142 under sustained use.
+
+### TUI Window Spawn
+`spawn('cmd', ['/c', 'start', ...])` misparses paths with spaces. Instead: `spawn('start "title" node "path"', [], { shell: true, windowsHide: true })`. Add `uncaughtException` handler in TUI — `cmd` windows close silently on crash.
+
+### EBUSY on Temp Dirs
+`simple-git` holds file handles after operations. Tests MUST use `robustCleanup()` from `test/helpers/cleanup.js` (5 retries, 200ms delays) instead of raw `rm()`.
 
 ### Disk Space Check
-- Windows: tries PowerShell `Get-PSDrive` first, falls back to `wmic logicaldisk`
-- Unix: uses `df -k`
-- All methods can fail — check is non-fatal, logs "skipped" and continues
+Tries PowerShell `Get-PSDrive` first, falls back to `wmic logicaldisk`. Unix uses `df -k`. All methods can fail — check logs "skipped" and continues.
 
 ### Path Separators
-- `simple-git` handles path normalization internally
-- `path.join()` used throughout — no hardcoded separators
-- Log file path: `path.join(projectDir, 'nightytidy-run.log')`
+`simple-git` handles normalization. Use `path.join()` throughout — no hardcoded separators.
 
-## Subprocess Gotchas
+## Subprocess
 
-### Claude Code stdout can be empty on success
-- Exit code 0 with no stdout → treated as failure
-- This triggers unnecessary retries — but no harm done
-- Whitespace-only stdout also counts as empty
+### CLAUDECODE Env Var Blocks Nesting
+Claude Code sets `CLAUDECODE` to prevent nested sessions. Must strip via `cleanEnv()` in both `claude.js` and `checks.js` before spawning.
 
-### Timeout race condition
-- `runOnce()` has `settled` flag to prevent double-resolve
-- Both timeout and close/error handlers check `settled` before resolving
-- Without this: Promise would resolve twice on timeout + delayed close
+### spawn stdin Defaults to Pipe
+Node.js `spawn()` defaults stdin to `'pipe'`. If piped but never written to, `claude` hangs. Use `stdio: ['ignore', 'pipe', 'pipe']` when not sending via stdin.
 
-### SIGKILL grace period
-- `child.kill()` sends SIGTERM, then 5s timer sends SIGKILL
-- The SIGKILL timer is NOT cleared if the process exits gracefully during the 5s window
-- Minor issue — `try { child.kill('SIGKILL') } catch {}` handles "already dead"
+### Empty Stdout on Success
+Exit code 0 with no stdout → failure → retry. Whitespace-only also empty. Harmless but causes unnecessary retries.
 
-## Resolved Technical Debt (for reference)
+### Timeout Race Condition
+`runOnce()` has `settled` flag to prevent double-resolve. Both timeout and close/error handlers check it.
 
-- `formatTerminalDuration` in `cli.js` was consolidated — now imports `formatDuration` from `report.js`
-- `findExistingRunBranches()` removed from `git.js` — was dead code (logic inline in `checks.js`)
-- `skippedCount` removed from executor return — was hardcoded `0`, phantom feature
+### SIGKILL Grace Period
+`child.kill()` SIGTERM → 5s timer → SIGKILL. Timer NOT cleared if process exits during window. Harmless — `try { child.kill('SIGKILL') } catch {}`.
+
+## Testing
+
+### vi.doMock() Leaks Across Tests
+`vi.doMock()` registrations persist across `vi.resetModules()`. Must `vi.doUnmock()` in `afterEach`.
+
+### ESM Main-Module Guard
+Standalone scripts calling `process.exit()` at top level crash smoke tests on import. Guard with: `process.argv[1]?.replace(/\\/g, '/').endsWith('script.js')`. See `dashboard-tui.js`.
+
+### Dashboard State Mutability
+`dashState` in `cli.js` is shared object reference. Callbacks mutate asynchronously. Test shape/properties, not initial values.
+
+### Non-TTY Requires Explicit Flags
+`process.stdin.isTTY` is falsy in CI/non-interactive environments. CLI exits with error unless `--all` or `--steps` provided.
+
+## Git
+
+### Ephemeral Files Must Never Be Tracked
+`nightytidy-run.log`, `nightytidy-progress.json`, `nightytidy-dashboard.url` in target project root. `git add -A` would track them. Fix: `excludeEphemeralFiles()` → `.git/info/exclude` + `fallbackCommit` `:!file` pathspec.
 
 ## Singleton State Risks
 
-- `logger.js`: `logFilePath` and `minLevel` are module-level. Calling `initLogger()` again mid-run overwrites the log file (clears it).
-- `git.js`: `git` is module-level. Calling `initGit()` again changes the working directory for all callers.
-- Both are safe in normal usage (init once in `cli.js`), but tests must be careful to re-init per test.
-
-## Edge Cases
-
-- **Tag collision**: `createPreRunTag()` handles same-minute collision with `-2` suffix, but NOT three-in-same-minute
-- **Merge conflict abort**: `git.merge(['--abort'])` can itself throw — caught and ignored
-- **Empty step selection**: User deselects all → `process.exit(0)` with yellow message
+- `logger.js`: Re-calling `initLogger()` clears the log file.
+- `git.js`: Re-calling `initGit()` changes working directory for all callers.
+- Both safe in production (init once), but tests must re-init per test.

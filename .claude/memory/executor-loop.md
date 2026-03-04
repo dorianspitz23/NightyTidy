@@ -1,10 +1,20 @@
 # Executor Loop — Tier 2 Reference
 
-Assumes CLAUDE.md loaded. Core loop in `src/executor.js` (94 lines).
+Assumes CLAUDE.md loaded. Core loop in `src/executor.js` (105 lines).
 
-## Single Export
+## Exports
 
-`executeSteps(selectedSteps, projectDir, { signal, onStepStart, onStepComplete, onStepFail })`
+- `executeSteps(selectedSteps, projectDir, options)` — main loop
+- `SAFETY_PREAMBLE` — constraint string prepended to every prompt
+
+## Safety Preamble
+
+`SAFETY_PREAMBLE` is prepended to ALL prompts (improvement, doc update, changelog). Prevents Claude subprocess from:
+- Deleting files
+- Creating/switching/merging branches
+- Running destructive git commands (reset, clean, checkout, rm)
+
+These are orchestrator responsibilities, not subprocess responsibilities.
 
 ## Step Execution Flow
 
@@ -13,13 +23,13 @@ For each step in `selectedSteps`:
 ```
 1. Check abort signal → break if aborted
 2. onStepStart(step, i, total)
-3. Capture pre-step HEAD hash
-4. Run improvement prompt: runPrompt(step.prompt, projectDir, { label })
-5. If failed → log, notify, push failed result, onStepFail, continue to next step
-6. Run doc update: runPrompt(DOC_UPDATE_PROMPT, projectDir, { label })
-7. If doc update failed → warn (non-fatal), step still counts as completed
-8. Check if Claude committed: hasNewCommit(preStepHash)
-9. If not committed → fallbackCommit(step.number, step.name)
+3. Capture pre-step HEAD hash via getHeadHash()
+4. Run improvement: runPrompt(SAFETY_PREAMBLE + step.prompt, projectDir, { signal, label })
+5. If failed → log, notify, push failed result, onStepFail, continue
+6. Run doc update: runPrompt(SAFETY_PREAMBLE + DOC_UPDATE_PROMPT, ...)
+7. If doc update failed → warn (non-fatal, step still completed)
+8. Check commits: hasNewCommit(preStepHash)
+9. If no new commit → fallbackCommit(step.number, step.name)
 10. Push completed result, onStepComplete
 ```
 
@@ -27,15 +37,8 @@ For each step in `selectedSteps`:
 
 ```js
 {
-  results: [{
-    step: { number, name },
-    status: 'completed' | 'failed',
-    output: string,
-    duration: number,    // ms for this step
-    attempts: number,    // from runPrompt
-    error: string|null,
-  }],
-  totalDuration: number,    // ms for entire run
+  results: [{ step: { number, name }, status: 'completed'|'failed', output, duration, attempts, error }],
+  totalDuration: number,
   completedCount: number,
   failedCount: number,
 }
@@ -43,26 +46,27 @@ For each step in `selectedSteps`:
 
 ## Key Behaviors
 
-- **Failed improvement → skip doc update** — the step is marked failed immediately
-- **Failed doc update → step still completed** — only logs a warning
-- **Abort signal** — checked at the START of each step, not mid-prompt
-- **Notifications** — sent for failed steps only (not for success)
+- **Failed improvement → skip doc update** — step marked failed immediately
+- **Failed doc update → step still completed** — only logs warning
 - **No parallel execution** — strictly sequential, one step at a time
+- **Notifications** — sent for failed steps only
+
+## Abort Signal Threading
+
+Signal flows: `cli.js AbortController` → `executeSteps(signal)` → `runPrompt(signal)` → `runOnce()` → `waitForChild()` → `child.kill()`
+
+- Checked at START of each iteration AND threaded into `runPrompt()`
+- Running subprocess killed immediately on abort
+- Retry sleeps short-circuit on abort
+- Dashboard Stop button triggers `abortController.abort()` via `onStop` callback
 
 ## Callbacks
 
 | Callback | When | Used By |
 |----------|------|---------|
-| `onStepStart(step, idx, total)` | Before running improvement prompt | cli.js spinner update |
-| `onStepComplete(step, idx, total)` | After successful commit verification | cli.js green checkmark |
-| `onStepFail(step, idx, total)` | After improvement prompt fails | cli.js red X |
-
-## Abort Handling
-
-- `signal` is an `AbortSignal` from `AbortController`
-- Checked at the top of each iteration, NOT during `runPrompt` execution
-- If aborted: breaks out of loop, returns partial results
-- A running Claude subprocess continues until it finishes — abort just prevents next step
+| `onStepStart(step, idx, total)` | Before improvement prompt | cli.js spinner + dashboard |
+| `onStepComplete(step, idx, total)` | After commit verification | cli.js green checkmark |
+| `onStepFail(step, idx, total)` | After improvement fails | cli.js red X |
 
 ## Dependencies
 
