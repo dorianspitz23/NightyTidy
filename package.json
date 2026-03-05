@@ -26,7 +26,8 @@
     "test:watch": "vitest",
     "test:ci": "vitest run --coverage",
     "test:flaky": "node scripts/run-flaky-check.js",
-    "check:docs": "node scripts/check-docs-freshness.js"
+    "check:docs": "node scripts/check-docs-freshness.js",
+    "check:security": "npm audit --audit-level=high"
   },
   "engines": {
     "node": ">=18.0.0"

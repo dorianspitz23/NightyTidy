@@ -84,12 +84,12 @@ vitest.config.js           # Coverage thresholds + strip-shebang Vite plugin (Wi
 |------|---------------|-------------|
 | `bin/nightytidy.js` | Entry point — calls `run()` | cli |
 | `src/cli.js` | Commander + Inquirer + full lifecycle | all modules |
-| `src/executor.js` | Core step loop — sequential execution | claude, git, notifications, prompts |
+| `src/executor.js` | Core step loop — sequential execution, prompt integrity check | crypto, claude, git, notifications, prompts |
 | `src/claude.js` | Claude Code subprocess (spawn, retry, timeout, session continue) | logger |
 | `src/git.js` | Git operations via simple-git | logger |
 | `src/checks.js` | Pre-run validation (6 checks) | logger |
 | `src/notifications.js` | Desktop notifications | logger |
-| `src/dashboard.js` | Progress file + TUI window spawner + HTTP fallback | logger |
+| `src/dashboard.js` | Progress file + TUI window spawner + HTTP fallback (CSRF, security headers) | crypto, logger |
 | `src/dashboard-tui.js` | Standalone TUI progress display (reads progress JSON, renders with chalk) | chalk (standalone script) |
 | `src/logger.js` | File + stdout logger (universal dep) | none |
 | `src/report.js` | Report generation + CLAUDE.md update + `getVersion()` | logger |
@@ -111,6 +111,7 @@ npm run test:watch        # Vitest — watch mode
 npm run test:ci           # Vitest with coverage + threshold enforcement
 npm run test:flaky        # Run suite 3x to detect flaky tests (use before merge)
 npm run check:docs        # Documentation freshness checker (catches doc drift)
+npm run check:security    # npm audit — fails on high+ severity vulnerabilities
 # No build step — plain JavaScript ESM
 ```
 
@@ -140,7 +141,7 @@ No secrets or API keys — Claude Code handles its own authentication.
 
 ```
 1. initLogger(projectDir)        ← MUST be first — everything logs
-2. acquireLock(projectDir)       ← Prevents concurrent runs (lock file with PID)
+2. acquireLock(projectDir)       ← Prevents concurrent runs (atomic O_EXCL lock file)
 3. initGit(projectDir)           ← Returns git instance + stores projectRoot
 4. excludeEphemeralFiles()       ← Adds log/progress/url files to .git/info/exclude
 5. runPreChecks(projectDir, git) ← Validates environment before any work
@@ -179,6 +180,15 @@ NightyTidy creates these files/artifacts in the project it runs against:
 - **Don't commit `nightytidy-run.log`** — it's per-run ephemeral output
 - **Don't use raw `rm()` in tests** — use `robustCleanup()` from `test/helpers/cleanup.js` for temp directory cleanup (prevents EBUSY flakiness on Windows)
 
+## Security
+
+- **Dashboard CSRF**: POST `/stop` requires a CSRF token (generated per session via `crypto.randomBytes`). Token is embedded in served HTML and verified server-side. Tests in `dashboard.test.js`.
+- **Dashboard security headers**: HTML responses include CSP, X-Frame-Options, X-Content-Type-Options.
+- **Lock file is atomic**: `acquireLock()` uses `fs.openSync(path, 'wx')` (O_EXCL) to prevent TOCTOU races between concurrent processes.
+- **Prompt integrity check**: `executor.js` computes SHA-256 of all step prompts and compares against `STEPS_HASH`. If prompts are regenerated from `extracted-prompts.json`, update the hash in `executor.js`. Warns but does not block (user may have legitimate prompt changes).
+- **`--dangerously-skip-permissions`**: Required for non-interactive Claude Code subprocess calls. NightyTidy is the permission layer — it controls what prompts are sent and operates on a safety branch.
+- **`npm run check:security`**: Runs `npm audit --audit-level=high`. Use before releases.
+
 ## Architectural Rules
 
 ### Error Handling Strategy
@@ -206,10 +216,10 @@ bin/nightytidy.js
         ├── src/checks.js            → logger
         ├── src/git.js               → logger
         ├── src/claude.js            → logger
-        ├── src/executor.js          → claude, git, notifications, logger, prompts/steps
+        ├── src/executor.js          → crypto, claude, git, notifications, logger, prompts/steps
         ├── src/prompts/steps.js     (no deps — data only)
         ├── src/notifications.js     → logger
-        ├── src/dashboard.js         → logger, child_process
+        ├── src/dashboard.js         → crypto, logger, child_process
         ├── src/dashboard-tui.js     (standalone — chalk only, spawned by dashboard.js)
         ├── src/setup.js             → logger, prompts/steps
         └── src/report.js            → logger  (cli.js imports formatDuration + getVersion)
