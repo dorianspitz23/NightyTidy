@@ -25,6 +25,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ci": "vitest run --coverage",
+    "test:flaky": "node scripts/run-flaky-check.js",
     "check:docs": "node scripts/check-docs-freshness.js"
   },
   "engines": {

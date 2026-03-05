@@ -73,6 +73,7 @@ test/
     testdata.js            # Shared test data factories: makeMetadata, makeResults
 scripts/
   check-docs-freshness.js  # CI check: verifies doc counts match code reality
+  run-flaky-check.js       # Runs test suite N times (default 3) to detect flaky tests
 vitest.config.js           # Coverage thresholds + strip-shebang Vite plugin (Windows CRLF fix)
 00_README.md .. 14_*.md    # PRD decomposition docs (reference only — not loaded by AI)
 ```
@@ -108,6 +109,7 @@ npx nightytidy --setup    # Add Claude Code integration to target project's CLAU
 npm test                  # Vitest — single pass
 npm run test:watch        # Vitest — watch mode
 npm run test:ci           # Vitest with coverage + threshold enforcement
+npm run test:flaky        # Run suite 3x to detect flaky tests (use before merge)
 npm run check:docs        # Documentation freshness checker (catches doc drift)
 # No build step — plain JavaScript ESM
 ```
