@@ -86,13 +86,6 @@ function handleRequest(req, res, onStop) {
   }
 }
 
-function writeProgressFile(state) {
-  if (!progressFilePath) return;
-  try {
-    writeFileSync(progressFilePath, JSON.stringify(state), 'utf8');
-  } catch { /* non-critical */ }
-}
-
 function spawnTuiWindow() {
   if (!progressFilePath) return;
   try {
@@ -138,7 +131,9 @@ export async function startDashboard(initialState, { onStop, projectDir }) {
     progressFilePath = path.join(projectDir, PROGRESS_FILENAME);
 
     // Write initial progress file and spawn TUI window
-    writeProgressFile(initialState);
+    try {
+      writeFileSync(progressFilePath, JSON.stringify(initialState), 'utf8');
+    } catch { /* non-critical */ }
     spawnTuiWindow();
 
     return await new Promise((resolve, reject) => {
@@ -172,13 +167,21 @@ export async function startDashboard(initialState, { onStop, projectDir }) {
 
 export function updateDashboard(state) {
   currentState = state;
-  writeProgressFile(state);
+
+  const json = JSON.stringify(state);
+
+  if (progressFilePath) {
+    try {
+      writeFileSync(progressFilePath, json, 'utf8');
+    } catch { /* non-critical */ }
+  }
 
   if (!server) return;
 
+  const ssePayload = `event: state\ndata: ${json}\n\n`;
   for (const client of sseClients) {
     try {
-      client.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`);
+      client.write(ssePayload);
     } catch {
       sseClients.delete(client);
     }

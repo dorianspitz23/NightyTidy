@@ -76,6 +76,7 @@ function waitForChild(child, timeoutMs, { verbose = true, signal } = {}) {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      signal?.removeEventListener('abort', onAbort);
       if (verbose) forceKillChild(child); else child.kill();
       resolve({ success: false, output: stdout, error: timeoutMessage(timeoutMs), exitCode: -1 });
     }, timeoutMs);
