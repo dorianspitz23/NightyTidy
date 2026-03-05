@@ -38,7 +38,8 @@ src/
   git.js                   # Git operations — branches, tags, commits, merges
   checks.js                # Pre-run validation (git, Claude CLI, disk space)
   notifications.js         # Desktop notifications (silent on failure)
-  dashboard.js             # Progress file writer + TUI window spawner + HTTP fallback (~180 LOC)
+  dashboard.js             # Progress file writer + TUI window spawner + HTTP server (~230 LOC)
+  dashboard-html.js        # Dashboard HTML template with CSS + JS (~410 LOC, used by dashboard.js)
   dashboard-tui.js         # Standalone TUI progress display (spawned in separate terminal window)
   logger.js                # File + stdout logger with chalk coloring (~50 LOC)
   report.js                # NIGHTYTIDY-REPORT.md generation + CLAUDE.md update
@@ -89,7 +90,8 @@ vitest.config.js           # Coverage thresholds + strip-shebang Vite plugin (Wi
 | `src/git.js` | Git operations via simple-git | logger |
 | `src/checks.js` | Pre-run validation (6 checks) | logger |
 | `src/notifications.js` | Desktop notifications | logger |
-| `src/dashboard.js` | Progress file + TUI window spawner + HTTP fallback (CSRF, security headers) | crypto, logger |
+| `src/dashboard.js` | Progress file + TUI window spawner + HTTP server (CSRF, security headers) | crypto, logger, dashboard-html |
+| `src/dashboard-html.js` | Dashboard HTML template (CSS + client-side JS) | none (data only) |
 | `src/dashboard-tui.js` | Standalone TUI progress display (reads progress JSON, renders with chalk) | chalk (standalone script) |
 | `src/logger.js` | File + stdout logger (universal dep) | none |
 | `src/report.js` | Report generation + CLAUDE.md update + `getVersion()` | logger |
@@ -220,7 +222,8 @@ bin/nightytidy.js
         ├── src/executor.js          → crypto, claude, git, notifications, logger, prompts/steps
         ├── src/prompts/steps.js     (no deps — data only)
         ├── src/notifications.js     → logger
-        ├── src/dashboard.js         → crypto, logger, child_process
+        ├── src/dashboard.js         → crypto, logger, child_process, dashboard-html
+        │     └── src/dashboard-html.js  (no deps — HTML template only)
         ├── src/dashboard-tui.js     (standalone — chalk only, spawned by dashboard.js)
         ├── src/setup.js             → logger, prompts/steps
         └── src/report.js            → logger  (cli.js imports formatDuration + getVersion)
