@@ -51,7 +51,7 @@ test/
   dashboard.test.js        # 14 tests — HTTP server start/stop, SSE events, stop callback
   logger.test.js           # 10 tests — real file I/O, level filtering, stderr fallback
   checks.test.js           # 4 tests — mock subprocess, mock git
-  checks-extended.test.js  # 12 tests — auth paths, disk space, branch warnings, empty repo
+  checks-extended.test.js  # 13 tests — auth paths, disk space, branch warnings, empty repo
   claude.test.js           # 21 tests — fake child process, fake timers, abort signal, Windows shell mode
   executor.test.js         # 9 tests — mocks claude, git, notifications, signal propagation
   git.test.js              # 16 tests — real git against temp dirs (integration)
@@ -62,6 +62,10 @@ test/
   steps.test.js            # 6 tests — structural integrity of prompt data
   integration.test.js      # 5 tests — multi-module integration with real git repos
   setup.test.js            # 7 tests — integration snippet generation, idempotent setup
+  dashboard-tui.test.js    # 18 tests — formatMs, progressBar, render with chalk proxy mock
+  cli-extended.test.js     # 20 tests — --list, --steps, --setup, locks, callbacks, dashboard state
+  dashboard-extended.test.js # 3 tests — scheduleShutdown timer behavior
+  integration-extended.test.js # 6 tests — setup + executor + git cross-module integration
   contracts.test.js        # 20 tests — module API contract verification against CLAUDE.md
   helpers/
     cleanup.js             # Shared temp directory cleanup with EBUSY retry for Windows
@@ -69,7 +73,7 @@ test/
     testdata.js            # Shared test data factories: makeMetadata, makeResults
 scripts/
   check-docs-freshness.js  # CI check: verifies doc counts match code reality
-vitest.config.js           # Coverage thresholds only (statements 90%, branches 80%, functions 80%)
+vitest.config.js           # Coverage thresholds + strip-shebang Vite plugin (Windows CRLF fix)
 00_README.md .. 14_*.md    # PRD decomposition docs (reference only — not loaded by AI)
 ```
 
@@ -124,7 +128,7 @@ No secrets or API keys — Claude Code handles its own authentication.
 - **Error handling per module** — see strategy table below; never change a module's error contract
 - **Singleton state** — `logger.js` and `git.js` use module-level mutable state, initialized once per run
 - **Naming**: files are `kebab-case.js`, functions are `camelCase`, constants are `UPPER_SNAKE`
-- **Minimal config** — `vitest.config.js` exists only for coverage thresholds; no `.eslintrc`, no `.prettierrc`
+- **Minimal config** — `vitest.config.js` has coverage thresholds + strip-shebang plugin; no `.eslintrc`, no `.prettierrc`
 - **Imports**: Node builtins first, then npm packages, then local modules
 - **Functions**: export only public API; keep helpers as unexported module-level functions
 - **Git commit messages**: prefixed with `NightyTidy:` for all automated commits
@@ -224,8 +228,8 @@ bin/nightytidy.js
 
 ## Testing
 
-- **Framework**: Vitest v2, `vitest.config.js` for coverage thresholds only
-- **Tests** across 17 files — `npm test` to run, `npm run test:ci` for coverage enforcement
+- **Framework**: Vitest v2, `vitest.config.js` for coverage thresholds + strip-shebang plugin
+- **Tests** across 21 files — `npm test` to run, `npm run test:ci` for coverage enforcement
 - **Coverage thresholds**: 90% statements, 80% branches, 80% functions — enforced by `test:ci`
 - **Philosophy**: Mock Claude Code subprocess, use real git against temp directories. Test failure paths harder than success paths
 - **Universal mock**: All test files mock `../src/logger.js` to prevent file I/O during tests (exception: `logger.test.js` tests the real logger)
