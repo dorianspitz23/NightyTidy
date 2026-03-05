@@ -1,4 +1,5 @@
 import { createServer } from 'http';
+import { randomBytes } from 'crypto';
 import { spawn } from 'child_process';
 import { writeFileSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -16,9 +17,16 @@ let urlFilePath = null;
 let progressFilePath = null;
 let shutdownTimer = null;
 let tuiProcess = null;
+let csrfToken = null;
+
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
+};
 
 function serveHTML(res) {
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...SECURITY_HEADERS });
   res.end(getHTML());
 }
 
@@ -45,6 +53,19 @@ function handleStop(req, res, onStop) {
   let body = '';
   req.on('data', chunk => { body += chunk; });
   req.on('end', () => {
+    // Verify CSRF token to prevent cross-origin stop requests
+    try {
+      const parsed = JSON.parse(body || '{}');
+      if (parsed.token !== csrfToken) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid token' }));
+        return;
+      }
+    } catch {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid token' }));
+      return;
+    }
     try { onStop(); } catch { /* abort may throw if already aborted */ }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -110,6 +131,7 @@ function spawnTuiWindow() {
 
 export async function startDashboard(initialState, { onStop, projectDir }) {
   try {
+    csrfToken = randomBytes(16).toString('hex');
     currentState = initialState;
     urlFilePath = path.join(projectDir, URL_FILENAME);
     progressFilePath = path.join(projectDir, PROGRESS_FILENAME);
@@ -178,6 +200,8 @@ export function stopDashboard() {
     try { unlinkSync(progressFilePath); } catch { /* already gone */ }
     progressFilePath = null;
   }
+
+  csrfToken = null;
 
   if (!server) {
     currentState = null;
@@ -602,7 +626,11 @@ async function stopRun() {
   btn.disabled = true;
   btn.textContent = 'Stopping...';
   try {
-    await fetch('/stop', { method: 'POST' });
+    await fetch('/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: '${csrfToken}' }),
+    });
   } catch { /* server may already be stopping */ }
 }
 </script>
