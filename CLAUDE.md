@@ -41,6 +41,7 @@ src/
   dashboard.js             # Progress file writer + TUI window spawner + HTTP server (~230 LOC)
   dashboard-html.js        # Dashboard HTML template with CSS + JS (~410 LOC, used by dashboard.js)
   dashboard-tui.js         # Standalone TUI progress display (spawned in separate terminal window)
+  lock.js                  # Atomic lock file to prevent concurrent runs (~65 LOC)
   logger.js                # File + stdout logger with chalk coloring (~50 LOC)
   report.js                # NIGHTYTIDY-REPORT.md generation + CLAUDE.md update
   setup.js                 # --setup command: generates CLAUDE.md integration snippet for target projects
@@ -93,6 +94,7 @@ vitest.config.js           # Coverage thresholds + strip-shebang Vite plugin (Wi
 | `src/dashboard.js` | Progress file + TUI window spawner + HTTP server (CSRF, security headers) | crypto, logger, dashboard-html |
 | `src/dashboard-html.js` | Dashboard HTML template (CSS + client-side JS) | none (data only) |
 | `src/dashboard-tui.js` | Standalone TUI progress display (reads progress JSON, renders with chalk) | chalk (standalone script) |
+| `src/lock.js` | Atomic lock file — prevents concurrent runs | logger |
 | `src/logger.js` | File + stdout logger (universal dep) | none |
 | `src/report.js` | Report generation + CLAUDE.md update + `getVersion()` | logger |
 | `src/setup.js` | `--setup` command: CLAUDE.md integration for target projects | logger, prompts/steps |
@@ -201,6 +203,7 @@ NightyTidy creates these files/artifacts in the project it runs against:
 | Module | Contract |
 |--------|----------|
 | `checks.js` | **Throws** with user-friendly messages → caught by cli.js |
+| `lock.js` | **Throws** with user-friendly messages → caught by cli.js |
 | `claude.js` | **Never throws** → returns `{ success, output, error, exitCode, duration, attempts }` |
 | `executor.js` | **Never throws** → failed steps recorded, run continues |
 | `git.js` `mergeRunBranch` | **Never throws** → returns `{ success: false, conflict: true }` on conflict |
@@ -221,6 +224,7 @@ bin/nightytidy.js
         ├── src/claude.js            → logger
         ├── src/executor.js          → crypto, claude, git, notifications, logger, prompts/steps
         ├── src/prompts/steps.js     (no deps — data only)
+        ├── src/lock.js              → logger
         ├── src/notifications.js     → logger
         ├── src/dashboard.js         → crypto, logger, child_process, dashboard-html
         │     └── src/dashboard-html.js  (no deps — HTML template only)
