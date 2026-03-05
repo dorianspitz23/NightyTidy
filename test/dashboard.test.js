@@ -47,16 +47,25 @@ function httpGet(url) {
   });
 }
 
-function httpPost(url) {
+function httpPost(url, body = '') {
   return new Promise((resolve, reject) => {
-    const req = http.request(url, { method: 'POST' }, (res) => {
+    const req = http.request(url, {
+      method: 'POST',
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+    }, (res) => {
       let data = '';
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => resolve({ status: res.statusCode, body: data }));
     });
     req.on('error', reject);
+    if (body) req.write(body);
     req.end();
   });
+}
+
+function extractCsrfToken(html) {
+  const match = html.match(/token:\s*'([a-f0-9]+)'/);
+  return match ? match[1] : null;
 }
 
 function connectSSE(url) {
@@ -276,7 +285,25 @@ describe('stop endpoint', () => {
     await robustCleanup(tempDir);
   });
 
-  it('POST /stop calls the onStop callback', async () => {
+  it('POST /stop calls the onStop callback with valid CSRF token', async () => {
+    const onStop = vi.fn();
+    const result = await mod.startDashboard(makeInitialState(), {
+      onStop,
+      projectDir: tempDir,
+    });
+
+    // Extract CSRF token from HTML
+    const htmlRes = await httpGet(result.url);
+    const token = extractCsrfToken(htmlRes.body);
+    expect(token).toBeTruthy();
+
+    const res = await httpPost(`${result.url}/stop`, JSON.stringify({ token }));
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ ok: true });
+    expect(onStop).toHaveBeenCalledOnce();
+  });
+
+  it('POST /stop rejects request without valid CSRF token', async () => {
     const onStop = vi.fn();
     const result = await mod.startDashboard(makeInitialState(), {
       onStop,
@@ -284,9 +311,8 @@ describe('stop endpoint', () => {
     });
 
     const res = await httpPost(`${result.url}/stop`);
-    expect(res.status).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ ok: true });
-    expect(onStop).toHaveBeenCalledOnce();
+    expect(res.status).toBe(403);
+    expect(onStop).not.toHaveBeenCalled();
   });
 });
 

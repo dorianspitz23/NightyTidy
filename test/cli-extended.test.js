@@ -9,6 +9,8 @@ vi.mock('fs', () => ({
   readFileSync: vi.fn(() => '{}'),
   writeFileSync: vi.fn(),
   unlinkSync: vi.fn(),
+  openSync: vi.fn(() => 99),
+  closeSync: vi.fn(),
 }));
 
 vi.mock('commander', () => {
@@ -114,7 +116,7 @@ vi.mock('../src/dashboard.js', () => ({
 // ---------------------------------------------------------------------------
 
 import { run } from '../src/cli.js';
-import { existsSync, readFileSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, openSync } from 'fs';
 import checkbox from '@inquirer/checkbox';
 import { Command } from 'commander';
 import { warn } from '../src/logger.js';
@@ -277,7 +279,11 @@ describe('cli.js extended coverage', () => {
   // -------------------------------------------------------------------------
   describe('lock file handling', () => {
     it('removes stale lock file from crashed process and continues', async () => {
-      existsSync.mockReturnValueOnce(true);
+      // First openSync('wx') fails with EEXIST, then stale lock is read and removed,
+      // second openSync('wx') succeeds
+      const eexist = new Error('EEXIST');
+      eexist.code = 'EEXIST';
+      openSync.mockImplementationOnce(() => { throw eexist; });
       // Stale lock — PID not alive
       readFileSync.mockReturnValueOnce(JSON.stringify({ pid: 999999, started: '2026-01-01T00:00:00Z' }));
       // process.kill(999999, 0) will throw since PID doesn't exist
@@ -289,7 +295,9 @@ describe('cli.js extended coverage', () => {
     });
 
     it('removes corrupt lock file and continues', async () => {
-      existsSync.mockReturnValueOnce(true);
+      const eexist = new Error('EEXIST');
+      eexist.code = 'EEXIST';
+      openSync.mockImplementationOnce(() => { throw eexist; });
       readFileSync.mockReturnValueOnce('not-valid-json!!!');
 
       await run();

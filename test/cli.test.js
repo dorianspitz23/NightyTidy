@@ -9,6 +9,8 @@ vi.mock('fs', () => ({
   readFileSync: vi.fn(() => '{}'),
   writeFileSync: vi.fn(),
   unlinkSync: vi.fn(),
+  openSync: vi.fn(() => 99),
+  closeSync: vi.fn(),
 }));
 
 vi.mock('commander', () => {

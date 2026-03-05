@@ -1,8 +1,29 @@
+import { createHash } from 'crypto';
 import { runPrompt } from './claude.js';
 import { getHeadHash, hasNewCommit, fallbackCommit } from './git.js';
 import { DOC_UPDATE_PROMPT } from './prompts/steps.js';
 import { notify } from './notifications.js';
 import { info, warn, error as logError } from './logger.js';
+
+// SHA-256 of all STEPS[].prompt content — update when prompts change.
+// Detects unexpected modification of prompt data before passing to
+// Claude Code with --dangerously-skip-permissions.
+const STEPS_HASH = '0248c8747785d71a8d26929c32eb70b6cef28a0e3c2422e32005dd30894a1422';
+
+export function verifyStepsIntegrity(steps) {
+  const content = steps.map(s => s.prompt).join('');
+  const hash = createHash('sha256').update(content).digest('hex');
+  if (hash !== STEPS_HASH) {
+    warn(
+      'Steps integrity check: prompt content hash mismatch. ' +
+      'If you regenerated prompts, update STEPS_HASH in executor.js. ' +
+      `Expected: ${STEPS_HASH.slice(0, 16)}... Got: ${hash.slice(0, 16)}...`
+    );
+    return false;
+  }
+  info('Steps integrity check passed');
+  return true;
+}
 
 // Safety preamble prepended to every Claude subprocess prompt.
 // Prevents destructive operations that conflict with NightyTidy's orchestration.
@@ -26,6 +47,8 @@ function makeStepResult(step, status, result, duration) {
 }
 
 export async function executeSteps(selectedSteps, projectDir, { signal, timeout, onStepStart, onStepComplete, onStepFail } = {}) {
+  verifyStepsIntegrity(selectedSteps);
+
   const results = [];
   const totalSteps = selectedSteps.length;
   const runStart = Date.now();
