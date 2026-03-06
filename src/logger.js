@@ -7,9 +7,11 @@ const LEVEL_COLORS = { debug: 'dim', warn: 'yellow', error: 'red' };
 
 let logFilePath = null;
 let minLevel = LEVELS.info;
+let logQuiet = false;
 
-export function initLogger(projectDir) {
+export function initLogger(projectDir, { quiet = false } = {}) {
   logFilePath = path.join(projectDir, 'nightytidy-run.log');
+  logQuiet = quiet;
   writeFileSync(logFilePath, '', 'utf8');
 
   const envLevel = (process.env.NIGHTYTIDY_LOG_LEVEL || 'info').toLowerCase();
@@ -40,9 +42,10 @@ function log(level, message) {
     process.stderr.write(`[logger file error] ${line}`);
   }
 
-  const colorFn = LEVEL_COLORS[level] ? chalk[LEVEL_COLORS[level]] : chalk.white;
-
-  process.stdout.write(colorFn(line));
+  if (!logQuiet) {
+    const colorFn = LEVEL_COLORS[level] ? chalk[LEVEL_COLORS[level]] : chalk.white;
+    process.stdout.write(colorFn(line));
+  }
 }
 
 export function debug(message) { log('debug', message); }

@@ -71,7 +71,12 @@ function removeLockAndReacquire(lockPath, lockContent) {
   }
 }
 
-export async function acquireLock(projectDir) {
+export function releaseLock(projectDir) {
+  const lockPath = path.join(projectDir, LOCK_FILENAME);
+  try { unlinkSync(lockPath); } catch { /* already gone */ }
+}
+
+export async function acquireLock(projectDir, { persistent = false } = {}) {
   const lockPath = path.join(projectDir, LOCK_FILENAME);
   const lockContent = JSON.stringify({ pid: process.pid, started: new Date().toISOString() });
 
@@ -104,8 +109,10 @@ export async function acquireLock(projectDir) {
 
   debug(`Lock acquired (PID ${process.pid})`);
 
-  // Auto-remove on any exit
-  process.on('exit', () => {
-    try { unlinkSync(lockPath); } catch { /* already gone */ }
-  });
+  // Auto-remove on any exit (skip in persistent mode for orchestrator)
+  if (!persistent) {
+    process.on('exit', () => {
+      try { unlinkSync(lockPath); } catch { /* already gone */ }
+    });
+  }
 }

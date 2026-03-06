@@ -27,7 +27,9 @@ describe('generateIntegrationSnippet', () => {
     expect(snippet).toContain('## NightyTidy');
     expect(snippet).toContain('<!-- /nightytidy -->');
     expect(snippet).toContain('nightytidy --all');
-    expect(snippet).toContain('nightytidy --steps');
+    expect(snippet).toContain('nightytidy --init-run');
+    expect(snippet).toContain('nightytidy --run-step');
+    expect(snippet).toContain('nightytidy --finish-run');
     expect(snippet).toContain('nightytidy --list');
 
     // All 28 steps present

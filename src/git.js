@@ -3,7 +3,7 @@ import { readFileSync, appendFileSync, existsSync } from 'fs';
 import path from 'path';
 import { info, debug, warn } from './logger.js';
 
-const EPHEMERAL_FILES = ['nightytidy-run.log', 'nightytidy-progress.json', 'nightytidy-dashboard.url'];
+const EPHEMERAL_FILES = ['nightytidy-run.log', 'nightytidy-progress.json', 'nightytidy-dashboard.url', 'nightytidy-run-state.json'];
 
 const MAX_NAME_RETRIES = 10;
 

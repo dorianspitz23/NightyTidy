@@ -33,7 +33,8 @@ bin/
   nightytidy.js            # Entry point — imports and calls run()
 src/
   cli.js                   # Full lifecycle orchestration (welcome → checks → select → execute → report → merge)
-  executor.js              # Core step loop — runs prompts sequentially, handles failures
+  executor.js              # Core step loop — runs prompts sequentially, handles failures + executeSingleStep
+  orchestrator.js          # Claude Code orchestrator mode — initRun, runStep, finishRun (~200 LOC)
   claude.js                # Claude Code subprocess wrapper (spawn, retry, timeout, session continue)
   git.js                   # Git operations — branches, tags, commits, merges
   checks.js                # Pre-run validation (git, Claude CLI, disk space)
@@ -68,6 +69,7 @@ test/
   cli-extended.test.js     # 31 tests — --list, --steps, --setup, --dry-run, locks, callbacks, progress summary
   dashboard-extended.test.js # 3 tests — scheduleShutdown timer behavior
   integration-extended.test.js # 6 tests — setup + executor + git cross-module integration
+  orchestrator.test.js     # 24 tests — initRun, runStep, finishRun with mocked modules
   contracts.test.js        # 31 tests — module API contract verification against CLAUDE.md
   helpers/
     cleanup.js             # Shared temp directory cleanup with EBUSY retry for Windows
@@ -89,7 +91,8 @@ vitest.config.js           # Coverage thresholds + strip-shebang Vite plugin (Wi
 |------|---------------|-------------|
 | `bin/nightytidy.js` | Entry point — calls `run()` | cli |
 | `src/cli.js` | Commander + Inquirer + full lifecycle | all modules |
-| `src/executor.js` | Core step loop — sequential execution, prompt integrity check | crypto, claude, git, notifications, prompts |
+| `src/executor.js` | Core step loop + single-step execution, prompt integrity check | crypto, claude, git, notifications, prompts |
+| `src/orchestrator.js` | Claude Code orchestrator mode (JSON API for step-by-step runs) | logger, checks, git, claude, executor, lock, report, notifications, prompts |
 | `src/claude.js` | Claude Code subprocess (spawn, retry, timeout, session continue) | logger |
 | `src/git.js` | Git operations via simple-git | logger |
 | `src/checks.js` | Pre-run validation (6 checks) | logger |
@@ -114,6 +117,10 @@ npx nightytidy --list     # List all available steps with descriptions
 npx nightytidy --timeout 60  # Set per-step timeout to 60 minutes (default: 45)
 npx nightytidy --dry-run  # Run pre-checks + step selection, show plan, exit without running
 npx nightytidy --setup    # Add Claude Code integration to target project's CLAUDE.md
+npx nightytidy --list --json    # List steps as JSON (for Claude Code orchestrator)
+npx nightytidy --init-run --steps 1,5,12  # Initialize orchestrated run (pre-checks, git, state file)
+npx nightytidy --run-step 1     # Run a single step in orchestrated mode
+npx nightytidy --finish-run     # Finish orchestrated run (report, merge, cleanup)
 npm test                  # Vitest — single pass
 npm run test:watch        # Vitest — watch mode
 npm run test:ci           # Vitest with coverage + threshold enforcement
@@ -172,14 +179,15 @@ NightyTidy creates these files/artifacts in the project it runs against:
 | `nightytidy-dashboard.url` | Dashboard URL — Claude reads this and shares with user | No (deleted on stop) |
 | `NIGHTYTIDY-REPORT.md` | Run summary with step results | Yes (on run branch) |
 | `CLAUDE.md` (appended section) | "NightyTidy — Last Run" with undo tag | Yes (on run branch) |
-| `nightytidy.lock` | Prevents concurrent runs (PID + timestamp) | No (auto-removed on exit) |
+| `nightytidy.lock` | Prevents concurrent runs (PID + timestamp) | No (auto-removed on exit; persistent in orchestrator mode) |
+| `nightytidy-run-state.json` | Orchestrator run state (steps, results, branch info) | No (deleted by --finish-run) |
 | `nightytidy-before-*` git tag | Safety snapshot before run | Yes (tag) |
 | `nightytidy/run-*` git branch | All changes from this run | Yes (branch) |
 
 ## What NOT to Do
 
 - **Don't add `require()`** — ESM only, no CommonJS
-- **Don't throw from `claude.js` or `executor.js`** — they must return result objects
+- **Don't throw from `claude.js`, `executor.js`, or `orchestrator.js`** — they must return result objects
 - **Don't change `steps.js` shape** — 28 steps with `{ number, name, prompt }` validated by tests
 - **Don't remove the logger mock** from any test — it will crash trying to write log files
 - **Don't make notifications blocking** — they must be fire-and-forget
@@ -214,6 +222,7 @@ NightyTidy creates these files/artifacts in the project it runs against:
 | `notifications.js` | **Swallows all errors** silently (try/catch in `notify()`) |
 | `dashboard.js` | **Swallows all errors** silently — dashboard failure must not crash a run |
 | `report.js` | **Warns but never throws** (report failure must not crash a run) |
+| `orchestrator.js` | **Never throws** → returns `{ success: false, error }` on failure |
 | `setup.js` | **Writes to filesystem** → returns `'created'`/`'appended'`/`'updated'` |
 | `cli.js` `run()` | **Top-level try/catch** catches everything |
 
@@ -234,12 +243,15 @@ bin/nightytidy.js
         │     └── src/dashboard-html.js  (no deps — HTML template only)
         ├── src/dashboard-tui.js     (standalone — chalk only, spawned by dashboard.js)
         ├── src/setup.js             → logger, prompts/steps
+        ├── src/orchestrator.js      → logger, checks, git, claude, executor, lock, report, notifications, prompts
         └── src/report.js            → logger  (cli.js imports formatDuration + getVersion)
 ```
 
 `logger.js` is the single universal dependency — every module imports it.
 
 ## Core Workflow
+
+### Interactive Mode (terminal)
 
 1. **Init**: Logger initialized, welcome screen shown
 2. **Pre-checks**: git installed → git repo → has commits → Claude CLI installed → Claude authenticated → disk space
@@ -250,10 +262,21 @@ bin/nightytidy.js
 7. **Reporting**: Changelog → NIGHTYTIDY-REPORT.md → commit → merge back to original branch
 8. **Notifications**: Desktop notifications at start, on step failure, and on completion
 
+### Orchestrator Mode (Claude Code)
+
+For non-TTY environments where Claude Code drives the workflow conversationally:
+
+1. `--list --json` → Claude Code presents steps, user picks
+2. `--init-run --steps 1,5,12` → pre-checks, git setup, state file created
+3. `--run-step N` (repeated) → one step at a time, Claude Code reports progress between steps
+4. `--finish-run` → changelog, report, merge, cleanup
+
+Each command is a separate process invocation. State persists via `nightytidy-run-state.json`. Lock file persists across invocations (persistent mode). Logger runs in quiet mode (no stdout, JSON output only).
+
 ## Testing
 
 - **Framework**: Vitest v2, `vitest.config.js` for coverage thresholds + strip-shebang plugin
-- **Tests** across 21 files — `npm test` to run, `npm run test:ci` for coverage enforcement
+- **Tests** across 22 files — `npm test` to run, `npm run test:ci` for coverage enforcement
 - **Coverage thresholds**: 90% statements, 80% branches, 80% functions — enforced by `test:ci`
 - **Philosophy**: Mock Claude Code subprocess, use real git against temp directories. Test failure paths harder than success paths
 - **Universal mock**: All test files mock `../src/logger.js` to prevent file I/O during tests (exception: `logger.test.js` tests the real logger)

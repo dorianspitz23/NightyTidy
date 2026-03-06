@@ -46,6 +46,60 @@ function makeStepResult(step, status, result, duration) {
   };
 }
 
+export async function executeSingleStep(step, projectDir, { signal, timeout } = {}) {
+  const stepLabel = `Step ${step.number}: ${step.name}`;
+  info(`${stepLabel} — starting`);
+
+  const stepStart = Date.now();
+  const preStepHash = await getHeadHash();
+
+  // Run improvement prompt
+  const result = await runPrompt(SAFETY_PREAMBLE + step.prompt, projectDir, {
+    label: `Step ${step.number} — ${step.name}`,
+    signal,
+    timeout,
+  });
+
+  if (!result.success) {
+    const duration = Date.now() - stepStart;
+    logError(`${stepLabel} — failed after ${result.attempts} attempts`);
+    notify(
+      `NightyTidy: Step ${step.number} Failed`,
+      `Step ${step.number} (${step.name}) failed after ${result.attempts} attempts. Skipped — run continuing.`
+    );
+    return makeStepResult(step, 'failed', result, duration);
+  }
+
+  // Run doc update in the same Claude session that made the changes
+  const docResult = await runPrompt(SAFETY_PREAMBLE + DOC_UPDATE_PROMPT, projectDir, {
+    label: `Step ${step.number} — doc update`,
+    signal,
+    timeout,
+    continueSession: true,
+  });
+
+  if (!docResult.success) {
+    warn(`${stepLabel}: Doc update failed after retries — improvement changes preserved but docs may be stale`);
+  }
+
+  // Commit verification
+  const committed = await hasNewCommit(preStepHash);
+  if (committed) {
+    info(`${stepLabel}: committed by Claude Code \u2713`);
+  } else {
+    try {
+      await fallbackCommit(step.number, step.name);
+    } catch (err) {
+      warn(`${stepLabel}: fallback commit failed — ${err.message}`);
+    }
+  }
+
+  const duration = Date.now() - stepStart;
+  info(`${stepLabel} — completed (${Math.round(duration / 1000)}s)`);
+
+  return makeStepResult(step, 'completed', result, duration);
+}
+
 export async function executeSteps(selectedSteps, projectDir, { signal, timeout, onStepStart, onStepComplete, onStepFail } = {}) {
   verifyStepsIntegrity(STEPS);
 
@@ -62,64 +116,18 @@ export async function executeSteps(selectedSteps, projectDir, { signal, timeout,
     }
 
     const step = selectedSteps[i];
-    const stepLabel = `Step ${step.number}/${totalSteps}: ${step.name}`;
-
     onStepStart?.(step, i, totalSteps);
-    info(`${stepLabel} — starting`);
 
-    const stepStart = Date.now();
-    const preStepHash = await getHeadHash();
+    const stepResult = await executeSingleStep(step, projectDir, { signal, timeout });
+    results.push(stepResult);
 
-    // Run improvement prompt
-    const result = await runPrompt(SAFETY_PREAMBLE + step.prompt, projectDir, {
-      label: `Step ${step.number} — ${step.name}`,
-      signal,
-      timeout,
-    });
-
-    if (!result.success) {
-      const duration = Date.now() - stepStart;
-      logError(`${stepLabel} — failed after ${result.attempts} attempts`);
-      notify(
-        `NightyTidy: Step ${step.number} Failed`,
-        `Step ${step.number} (${step.name}) failed after ${result.attempts} attempts. Skipped — run continuing.`
-      );
-      results.push(makeStepResult(step, 'failed', result, duration));
+    if (stepResult.status === 'failed') {
       failedCount++;
       onStepFail?.(step, i, totalSteps);
-      continue;
-    }
-
-    // Run doc update in the same Claude session that made the changes
-    const docResult = await runPrompt(SAFETY_PREAMBLE + DOC_UPDATE_PROMPT, projectDir, {
-      label: `Step ${step.number} — doc update`,
-      signal,
-      timeout,
-      continueSession: true,
-    });
-
-    if (!docResult.success) {
-      warn(`${stepLabel}: Doc update failed after retries — improvement changes preserved but docs may be stale`);
-    }
-
-    // Commit verification
-    const committed = await hasNewCommit(preStepHash);
-    if (committed) {
-      info(`${stepLabel}: committed by Claude Code \u2713`);
     } else {
-      try {
-        await fallbackCommit(step.number, step.name);
-      } catch (err) {
-        warn(`${stepLabel}: fallback commit failed — ${err.message}`);
-      }
+      completedCount++;
+      onStepComplete?.(step, i, totalSteps);
     }
-
-    const duration = Date.now() - stepStart;
-    info(`${stepLabel} — completed (${Math.round(duration / 1000)}s)`);
-
-    results.push(makeStepResult(step, 'completed', result, duration));
-    completedCount++;
-    onStepComplete?.(step, i, totalSteps);
   }
 
   const totalDuration = Date.now() - runStart;

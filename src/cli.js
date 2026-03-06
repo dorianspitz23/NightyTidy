@@ -14,6 +14,7 @@ import { generateReport, formatDuration, getVersion } from './report.js';
 import { setupProject } from './setup.js';
 import { startDashboard, updateDashboard, stopDashboard, scheduleShutdown } from './dashboard.js';
 import { acquireLock } from './lock.js';
+import { initRun, runStep, finishRun } from './orchestrator.js';
 
 const PROGRESS_SUMMARY_INTERVAL = 5; // Print a summary every N completed steps
 const DESC_MAX_LENGTH = 72;
@@ -263,7 +264,11 @@ export async function run() {
     .option('--list', 'List all available steps and exit')
     .option('--setup', 'Add NightyTidy integration to this project\u2019s CLAUDE.md so Claude Code knows how to use it')
     .option('--timeout <minutes>', 'Timeout per step in minutes (default: 45)', parseInt)
-    .option('--dry-run', 'Run pre-checks and show selected steps without executing');
+    .option('--dry-run', 'Run pre-checks and show selected steps without executing')
+    .option('--json', 'Output as JSON (use with --list)')
+    .option('--init-run', 'Initialize an orchestrated run (pre-checks, git setup, state file)')
+    .option('--run-step <N>', 'Run a single step in an orchestrated run', parseInt)
+    .option('--finish-run', 'Finish an orchestrated run (report, merge, cleanup)');
 
   program.parse();
   const opts = program.opts();
@@ -274,6 +279,36 @@ export async function run() {
     console.error(chalk.red(`--timeout must be a positive number of minutes (got "${opts.timeout}")`));
     process.exit(1);
   }
+
+  // Orchestrator commands — output JSON and exit
+  if (opts.list && opts.json) {
+    const steps = STEPS.map(s => ({
+      number: s.number,
+      name: s.name,
+      description: extractStepDescription(s.prompt),
+    }));
+    console.log(JSON.stringify({ steps }));
+    process.exit(0);
+  }
+
+  if (opts.initRun) {
+    const result = await initRun(projectDir, { steps: opts.steps, timeout: timeoutMs });
+    console.log(JSON.stringify(result));
+    process.exit(result.success ? 0 : 1);
+  }
+
+  if (opts.runStep !== undefined) {
+    const result = await runStep(projectDir, opts.runStep, { timeout: timeoutMs });
+    console.log(JSON.stringify(result));
+    process.exit(result.success ? 0 : 1);
+  }
+
+  if (opts.finishRun) {
+    const result = await finishRun(projectDir);
+    console.log(JSON.stringify(result));
+    process.exit(result.success ? 0 : 1);
+  }
+
   let spinner;
   let runStarted = false;
   let tagName = '';

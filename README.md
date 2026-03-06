@@ -4,7 +4,7 @@ Automated overnight codebase improvement through [Claude Code](https://docs.anth
 
 ## Prerequisites
 
-- **Node.js** >= 18
+- **Node.js** >= 20.12.0
 - **Git** installed and on your PATH
 - **Claude Code CLI** installed and authenticated — [installation guide](https://docs.anthropic.com/en/docs/claude-code)
 
@@ -58,6 +58,28 @@ npx nightytidy --setup
 ### Non-interactive mode
 
 In environments without a TTY (CI, scripts), you must specify `--all` or `--steps` — interactive step selection is not available.
+
+### Claude Code orchestrator mode
+
+If you use NightyTidy from within Claude Code (no terminal), use the step-by-step orchestrator commands. These output JSON and let Claude Code drive the workflow conversationally:
+
+```bash
+# 1. List steps as JSON
+npx nightytidy --list --json
+
+# 2. Initialize a run (pre-checks, git setup, state file)
+npx nightytidy --init-run --steps 1,5,12
+
+# 3. Run steps one at a time
+npx nightytidy --run-step 1
+npx nightytidy --run-step 5
+npx nightytidy --run-step 12
+
+# 4. Finish (report, merge, cleanup)
+npx nightytidy --finish-run
+```
+
+Run `npx nightytidy --setup` in your project to add a CLAUDE.md snippet that teaches Claude Code this workflow automatically.
 
 ## How it works
 

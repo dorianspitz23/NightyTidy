@@ -19,32 +19,28 @@ NightyTidy runs AI-driven improvement steps against this codebase. It handles gi
 
 ### RULE 1 — ALWAYS ASK WHICH STEPS (NEVER SKIP)
 
-**You are FORBIDDEN from running \`nightytidy --all\` on your own.** You MUST show the step list and ask the user which steps to run BEFORE executing anything. This is not optional.
+**You are FORBIDDEN from running steps without asking.** You MUST show the step list and ask the user which steps to run BEFORE executing anything. This is not optional.
 
 Do this EVERY TIME:
 
-1. Copy the full step list below into your response so the user can see it
-2. Ask: "Which steps would you like to run? Pick numbers (e.g. 1,5,12), say 'all', or tell me what areas you care about."
-3. **STOP and WAIT for the user's reply — do NOT proceed until they answer**
-4. Only after the user responds, run the command using the Bash tool with **run_in_background=true**:
-   - User says "all" → \`nightytidy --all\`
-   - User picks numbers → \`nightytidy --steps 1,5,12\`
+1. Run \`nightytidy --list --json\` to get the step list
+2. Present the steps to the user in a readable format
+3. Ask: "Which steps would you like to run? Pick numbers (e.g. 1,5,12), say 'all', or tell me what areas you care about."
+4. **STOP and WAIT for the user's reply — do NOT proceed until they answer**
 
-**If you run \`nightytidy --all\` without asking the user first, you have failed this instruction.**
+**If you run steps without asking the user first, you have failed this instruction.**
 
-### RULE 2 — RUN IN BACKGROUND AND SHARE DASHBOARD URL (NEVER SKIP)
+### RULE 2 — USE ORCHESTRATOR MODE (STEP BY STEP)
 
-**You MUST run the nightytidy command using the Bash tool with run_in_background=true.** Running it as a foreground command blocks you from sharing the dashboard URL. This is NOT optional.
+**You MUST use the step-by-step orchestrator commands.** Never use \`--all\` or run nightytidy in background mode.
 
-Immediately after launching the background command, run this Bash command (foreground):
+After the user selects steps:
 
-    sleep 10 && cat nightytidy-dashboard.url
+1. **Initialize**: \`nightytidy --init-run --steps 1,5,12\` (or omit \`--steps\` for all)
+2. **Run each step**: \`nightytidy --run-step <N>\` — report the result to the user after each step. If a step fails, ask if they want to continue with the remaining steps.
+3. **Finish**: \`nightytidy --finish-run\` — generates the report, merges the branch, and cleans up.
 
-This outputs the dashboard URL. Share it with the user: "Here's your live dashboard: [URL]"
-
-If the file doesn't exist yet, try once more: \`sleep 5 && cat nightytidy-dashboard.url\`
-
-**NEVER run nightytidy as a foreground command. ALWAYS share the dashboard URL with the user.**
+All commands output JSON. Parse it to present results conversationally to the user.
 
 ### Available Steps
 
@@ -52,15 +48,18 @@ ${generateStepList()}
 
 ### Commands (reference)
 
-- \`nightytidy --all\` — run all steps (only after user says "all")
-- \`nightytidy --steps 1,5,12\` — run specific steps by number
-- \`nightytidy --list\` — list steps in terminal
+- \`nightytidy --list --json\` — list all steps as JSON
+- \`nightytidy --init-run [--steps N,N,N]\` — initialize a run (pre-checks, git setup, state file)
+- \`nightytidy --run-step <N>\` — run a single step
+- \`nightytidy --finish-run\` — generate report, merge, cleanup
+- \`nightytidy --list\` — list steps in terminal (human-readable)
+- \`nightytidy --all\` — run all steps non-interactively (terminal only, NOT for Claude Code)
 
 ### Notes
 
 - Safety git tag created before starting — all changes can be undone
 - All changes on a dedicated branch, auto-merged when done
-- Full run (all steps): 4–8 hours. Individual steps: 15–30 minutes
+- Individual steps: 5–30 minutes each. Full run (all steps): 4–8 hours
 - Progress logged to \`nightytidy-run.log\`; results in \`NIGHTYTIDY-REPORT.md\`
 
 ${MARKER_END}`;
