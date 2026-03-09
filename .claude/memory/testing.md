@@ -1,6 +1,6 @@
 # Testing — Tier 2 Reference
 
-Assumes CLAUDE.md loaded. 283 tests, 22 files, Vitest v2.
+Assumes CLAUDE.md loaded. 290 tests, 22 files, Vitest v2.
 
 ## Test File → Module Coverage
 
@@ -8,10 +8,13 @@ Assumes CLAUDE.md loaded. 283 tests, 22 files, Vitest v2.
 |-----------|--------|-------|------|
 | `smoke.test.js` | All (structural) | 6 | Smoke — deploy verification |
 | `cli.test.js` | `cli.js` | 27 | Unit (mocked lifecycle) |
-| `dashboard.test.js` | `dashboard.js` | 14 | Unit + Integration (real HTTP) |
+| `cli-extended.test.js` | `cli.js` | 31 | Unit (dashboard state, abort, orchestrator pass-through) |
+| `dashboard.test.js` | `dashboard.js` | 15 | Unit + Integration (real HTTP) |
+| `dashboard-extended.test.js` | `dashboard.js` | 3 | Unit (scheduleShutdown timer) |
+| `dashboard-tui.test.js` | `dashboard-tui.js` | 18 | Unit (TUI rendering, chalk proxy) |
 | `logger.test.js` | `logger.js` | 10 | Integration (real file I/O) |
 | `checks.test.js` | `checks.js` | 4 | Unit (mocked subprocess) |
-| `checks-extended.test.js` | `checks.js` | 12 | Unit (auth, disk, empty repo) |
+| `checks-extended.test.js` | `checks.js` | 13 | Unit (auth, disk, empty repo) |
 | `claude.test.js` | `claude.js` | 21 | Unit (fake process, fake timers) |
 | `executor.test.js` | `executor.js` | 9 | Unit (mocked claude, git) |
 | `git.test.js` | `git.js` | 16 | Integration (real git, temp dirs) |
@@ -21,11 +24,9 @@ Assumes CLAUDE.md loaded. 283 tests, 22 files, Vitest v2.
 | `report-extended.test.js` | `report.js` | 15 | Unit (CLAUDE.md update, edge cases) |
 | `steps.test.js` | `prompts/steps.js` | 6 | Structural integrity |
 | `integration.test.js` | Multi-module | 5 | Integration (real git + fs) |
-| `setup.test.js` | `setup.js` | 7 | Unit (mock fs) |
-| `cli-extended.test.js` | `cli.js` | 20 | Unit (dashboard state, abort paths) |
-| `dashboard-extended.test.js` | `dashboard.js` | 3 | Unit (TUI spawn, error paths) |
-| `dashboard-tui.test.js` | `dashboard-tui.js` | 18 | Unit (TUI rendering, chalk proxy) |
 | `integration-extended.test.js` | Multi-module | 6 | Integration (abort, ephemeral, report) |
+| `setup.test.js` | `setup.js` | 7 | Unit (mock fs) |
+| `orchestrator.test.js` | `orchestrator.js` | 31 | Unit (initRun, runStep, finishRun, dashboard) |
 | `contracts.test.js` | All modules | 31 | Contract verification vs CLAUDE.md |
 
 ## Test Helpers (`test/helpers/`)
@@ -64,9 +65,6 @@ Without this: tests crash writing `nightytidy-run.log`. Exception: `logger.test.
 - Call `initGit(tempDir)` to set module singleton per test
 - Cleanup: `robustCleanup(tempDir)` — NEVER raw `rm()`
 
-### Mock fs (report, setup tests)
-- `vi.mock('fs', () => ({ writeFileSync: vi.fn(), readFileSync: vi.fn(), existsSync: vi.fn() }))`
-
 ### vi.doMock isolation (contracts.test.js)
 - `vi.resetModules()` + `vi.doMock()` in `beforeEach`
 - **Must** `vi.doUnmock()` in `afterEach` — registrations persist across `resetModules()`
@@ -74,10 +72,7 @@ Without this: tests crash writing `nightytidy-run.log`. Exception: `logger.test.
 
 ## Common Pitfalls
 
-- **Windows EBUSY on temp dirs**: git holds handles. Always `robustCleanup()`, never raw `rm()`
-- **Forgetting `vi.clearAllMocks()` in beforeEach** — mock state leaks between tests
-- **Not advancing fake timers** — retry/timeout tests hang forever
-- **`queueMicrotask` vs `process.nextTick`** — checks tests use nextTick, claude tests use queueMicrotask
-- **git tests need `initGit(tempDir)`** — module singleton must reset per test
-- **Dashboard state mutability** — `dashState` is shared reference; test shape, not initial values
-- **Non-TTY stdin** — `process.stdin.isTTY` falsy in test envs; CLI tests need `--all` or `--steps`
+See `pitfalls.md` for full list. Key testing-specific ones:
+- **Windows EBUSY**: Always `robustCleanup()`, never raw `rm()` in temp dir tests
+- **Fake timers**: `vi.useFakeTimers({ shouldAdvanceTime: true })` or retry tests hang
+- **`vi.clearAllMocks()` ≠ `vi.resetAllMocks()`**: clear resets calls, reset also clears implementations

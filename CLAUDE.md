@@ -80,6 +80,8 @@ scripts/
   check-docs-freshness.js  # CI check: verifies doc counts match code reality
   run-flaky-check.js       # Runs test suite N times (default 3) to detect flaky tests
 vitest.config.js           # Coverage thresholds + strip-shebang Vite plugin (Windows CRLF fix)
+docs/
+  ERROR_MESSAGES.md        # Error message style guide + reference for all user-facing messages
 00_README.md .. 14_*.md    # PRD decomposition docs (reference only — not loaded by AI)
 .github/
   workflows/
@@ -324,5 +326,6 @@ When you learn something worth preserving, put it in the right place:
 | `claude-integration.md` | Changing Claude Code subprocess handling |
 | `executor-loop.md` | Modifying step execution or doc-update flow |
 | `dashboard.md` | Changing progress display (HTTP, TUI, SSE) |
+| `orchestrator.md` | Changing orchestrator mode (JSON API, state file, dashboard) |
 | `report-generation.md` | Changing report format or CLAUDE.md auto-update |
 | `pitfalls.md` | Debugging platform-specific or subprocess issues |

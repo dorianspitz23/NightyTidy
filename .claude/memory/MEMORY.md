@@ -5,15 +5,17 @@ NightyTidy: automated overnight codebase improvement via Claude Code subprocess 
 ## Current State
 
 - **Version**: 0.1.0
-- **Test count**: 188 (17 test files, all passing)
-- **Coverage**: above thresholds (90/80/80)
-- **Last major change**: GitHub-readiness — README, LICENSE, 4 bug fixes, 6 new tests
+- **Test count**: 290 (22 test files, all passing)
+- **Coverage**: 96% stmts, 90% branches, 94% functions (src/)
+- **Last major change**: Orchestrator dashboard — `--init-run` spawns browser dashboard, `--finish-run` stops it
 
 ## Recent Changes
 
+- Orchestrator mode with browser dashboard (`--init-run`, `--run-step`, `--finish-run`)
+- State file persistence across process invocations
+- Dashboard standalone server for non-TTY environments
 - README.md and LICENSE (MIT) added
 - Bug fixes: empty repo crash, tag/branch collision retry (up to 10), abort cleanup, dashboard file cleanup
-- Documentation overhaul: three-tier system (Tier 1 CLAUDE.md, Tier 2 memory files, Tier 3 human docs)
 
 ## Topic Files
 
@@ -25,6 +27,7 @@ NightyTidy: automated overnight codebase improvement via Claude Code subprocess 
 | `executor-loop.md` | Modifying step execution or doc-update flow |
 | `git-workflow.md` | Changing branching, tagging, or merge logic |
 | `dashboard.md` | Changing progress display (HTTP, TUI, SSE) |
+| `orchestrator.md` | Changing orchestrator mode (JSON API, state file, dashboard) |
 | `report-generation.md` | Changing report format or CLAUDE.md auto-update |
 | `prompts.md` | Modifying or adding improvement prompts |
 | `pitfalls.md` | Debugging platform-specific or subprocess issues |

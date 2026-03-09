@@ -1,6 +1,6 @@
 # CLI Lifecycle — Tier 2 Reference
 
-Assumes CLAUDE.md loaded. Orchestration in `src/cli.js` (~450 lines).
+Assumes CLAUDE.md loaded. Orchestration in `src/cli.js` (~530 lines).
 
 ## Entry Point
 
@@ -15,9 +15,15 @@ Assumes CLAUDE.md loaded. Orchestration in `src/cli.js` (~450 lines).
 | `--list` | boolean | false | Print step numbers + names, exit(0) |
 | `--setup` | boolean | false | Generate CLAUDE.md integration snippet, exit(0) |
 | `--timeout <min>` | number | 45 | Per-step timeout in minutes (converted to ms) |
+| `--dry-run` | boolean | false | Run pre-checks + selection, show plan, exit(0) |
+| `--json` | boolean | false | Machine-readable output (used with `--list`) |
+| `--init-run` | boolean | false | Orchestrator: initialize run (requires `--steps`) |
+| `--run-step <N>` | number | — | Orchestrator: run single step N |
+| `--finish-run` | boolean | false | Orchestrator: finalize run (report, merge, cleanup) |
 | `--version` | boolean | false | Print version, exit(0) |
 
 **Non-TTY**: Exits with error unless `--all` or `--steps` provided. No interactive selection without TTY.
+**Orchestrator flags**: `--init-run`, `--run-step`, `--finish-run` are early-exit paths that output JSON and call `process.exit()`. See `orchestrator.md`.
 
 ## Lock File
 

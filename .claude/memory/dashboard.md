@@ -1,6 +1,6 @@
 # Dashboard — Tier 2 Reference
 
-Assumes CLAUDE.md loaded. Progress display in `src/dashboard.js` (612 lines) + `src/dashboard-tui.js` (182 lines).
+Assumes CLAUDE.md loaded. Three display systems across `src/dashboard.js`, `src/dashboard-tui.js`, `src/dashboard-standalone.js`.
 
 ## Constants
 
@@ -11,17 +11,15 @@ Assumes CLAUDE.md loaded. Progress display in `src/dashboard.js` (612 lines) + `
 | `EXIT_DELAY` | 5,000 ms | dashboard-tui.js |
 | `BAR_WIDTH` | 30 chars | dashboard-tui.js |
 | `MAX_VISIBLE_STEPS` | 16 | dashboard-tui.js |
+| `POLL_INTERVAL` | 500 ms | dashboard-standalone.js |
 
 ## Architecture
 
-Three display systems (context-dependent):
 1. **TUI window**: Standalone `dashboard-tui.js` spawned in separate terminal, reads `nightytidy-progress.json`
 2. **HTTP server (interactive)**: In-process server in `dashboard.js` — serves HTML + SSE, push-based via `updateDashboard()`
-3. **HTTP server (orchestrator)**: Detached `dashboard-standalone.js` process — serves same HTML + SSE, poll-based (reads progress JSON every 500ms)
+3. **HTTP server (orchestrator)**: Detached `dashboard-standalone.js` — polls progress JSON. See `orchestrator.md`.
 
-Interactive mode uses #1 + #2. Orchestrator mode uses #3 only (spawned by `--init-run`, killed by `--finish-run`).
-
-All are fire-and-forget — failure of any must not crash the run.
+Interactive mode uses #1 + #2. Orchestrator mode uses #3 only. All fire-and-forget — failure must not crash the run.
 
 ## Exports (dashboard.js)
 
@@ -57,8 +55,8 @@ Updated by `cli.js` callbacks → passed to `updateDashboard()` → written to J
 ## HTTP Endpoints
 
 - `GET /` → HTML dashboard (inline CSS/JS, dark theme, real-time updates)
-- `GET /events` → SSE stream
-- `POST /stop` → triggers `onStop` callback (abort signal propagation)
+- `GET /events` → SSE stream (current state on connect, then updates)
+- `POST /stop` → triggers `onStop` callback (CSRF-protected)
 
 ## TUI Spawn (Platform-Specific)
 
@@ -69,26 +67,9 @@ Updated by `cli.js` callbacks → passed to `updateDashboard()` → written to J
 ## Shutdown
 
 - `stopDashboard()`: delete ephemeral files → close SSE clients → close HTTP server → reset state
-- Called directly on abort (not `scheduleShutdown()` — `process.exit` kills timers)
+- Called directly on abort/error path (not `scheduleShutdown()` — `process.exit` kills timers)
 - Ephemeral file cleanup happens even without HTTP server (TUI-only mode)
-
-## Orchestrator Mode Dashboard
-
-`dashboard-standalone.js` — standalone detached HTTP server for orchestrator mode.
-
-| Constant | Value | File |
-|----------|-------|------|
-| `POLL_INTERVAL` | 500 ms | dashboard-standalone.js |
-
-- Spawned by `orchestrator.js` `initRun()` via `spawnDashboardServer(projectDir)`
-- Detached process, PID + URL stored in `nightytidy-run-state.json`
-- Polls `nightytidy-progress.json` for state changes (written by `runStep()`)
-- Serves same HTML via `getHTML()` from `dashboard-html.js`
-- CSRF token generated per session, `/stop` endpoint is no-op (abort handled externally)
-- Killed via `SIGTERM` by `finishRun()` → `stopDashboardServer(pid)`
-- `initRun` returns `dashboardUrl` in JSON output so outer Claude Code can share it
 
 ## Error Handling
 
 All errors swallowed. Server fail → TUI-only. TUI fail → HTTP-only. Both fail → run continues.
-Orchestrator mode: spawn fail → `dashboardUrl: null` in output, run continues without dashboard.

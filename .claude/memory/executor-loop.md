@@ -1,10 +1,11 @@
 # Executor Loop — Tier 2 Reference
 
-Assumes CLAUDE.md loaded. Core loop in `src/executor.js` (105 lines).
+Assumes CLAUDE.md loaded. Core loop in `src/executor.js` (141 lines).
 
 ## Exports
 
 - `executeSteps(selectedSteps, projectDir, options)` — main loop
+- `executeSingleStep(step, projectDir, options)` — single step with doc update + commit check
 - `SAFETY_PREAMBLE` — constraint string prepended to every prompt
 
 ## Safety Preamble
