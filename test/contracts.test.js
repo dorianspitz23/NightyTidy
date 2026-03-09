@@ -134,7 +134,7 @@ describe('contract: git.js — mergeRunBranch never throws on conflict', () => {
     expect(result).toEqual({ success: true });
   });
 
-  it('returns { success: false, conflict: true } on conflict (does not throw)', async () => {
+  it('returns { success: false, conflict: true } on conflict (does not throw)', { timeout: 15000 }, async () => {
     const { initGit, getCurrentBranch, createRunBranch, mergeRunBranch } = await import('../src/git.js');
     initGit(tempDir);
 

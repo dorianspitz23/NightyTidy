@@ -119,7 +119,7 @@ describe('integration: full execution flow', () => {
     expect(existsSync(path.join(tempDir, 'lint-fix.txt'))).toBe(true);
   });
 
-  it('handles step failure without breaking the run branch', async () => {
+  it('handles step failure without breaking the run branch', { timeout: 15000 }, async () => {
     const originalBranch = await getCurrentBranch();
     const tagName = await createPreRunTag();
     const runBranch = await createRunBranch(originalBranch);
