@@ -71,7 +71,25 @@ test/
   dashboard-extended.test.js # 3 tests — scheduleShutdown timer behavior
   integration-extended.test.js # 6 tests — setup + executor + git cross-module integration
   orchestrator.test.js     # 31 tests — initRun, runStep, finishRun, dashboard integration with mocked modules
-  contracts.test.js        # 31 tests — module API contract verification against CLAUDE.md
+  contracts.test.js        # 46 tests — module API contract verification against CLAUDE.md
+  dashboard-standalone.test.js # 10 tests — standalone dashboard HTTP server integration
+  dashboard-security.test.js # 7 tests — security headers, CSRF token validation
+  dashboard-error-paths.test.js # 5 tests — error recovery, SSE client failure handling
+  dashboard-tui-extended.test.js # 10 tests — TUI render edge cases
+  dashboard-tui-polling.test.js # 8 tests — TUI polling, elapsed time display
+  checks-timeout.test.js   # 8 tests — timeout, disk space edge cases
+  claude-spawn-error.test.js # 4 tests — spawn error paths, retry with fake timers
+  executor-extended.test.js # 7 tests — fallback commit, doc update flow
+  executor-integrity.test.js # 2 tests — prompt integrity hash verification
+  git-retry.test.js        # 7 tests — tag/branch retry loops
+  git-merge-abort.test.js  # 6 tests — merge conflict abort handling
+  lock.test.js             # 14 tests — atomic lock, stale detection
+  lock-extended.test.js    # 7 tests — persistent mode, edge cases
+  lock-interactive.test.js # 5 tests — TTY override prompt
+  lock-race-condition.test.js # 4 tests — concurrent lock races
+  orchestrator-error-paths.test.js # 10 tests — orchestrator error recovery
+  orchestrator-integration.test.js # 6 tests — real state file operations
+  orchestrator-lifecycle.test.js # 5 tests — full lifecycle integration
   helpers/
     cleanup.js             # Shared temp directory cleanup with EBUSY retry for Windows
     mocks.js               # Shared mock factories: createMockProcess, createErrorProcess, createMockGit
@@ -283,7 +301,7 @@ Each command is a separate process invocation. State persists via `nightytidy-ru
 ## Testing
 
 - **Framework**: Vitest v2, `vitest.config.js` for coverage thresholds + strip-shebang plugin
-- **Tests** across 22 files — `npm test` to run, `npm run test:ci` for coverage enforcement
+- **Tests** across 40 files — `npm test` to run, `npm run test:ci` for coverage enforcement
 - **Coverage thresholds**: 90% statements, 80% branches, 80% functions — enforced by `test:ci`
 - **Philosophy**: Mock Claude Code subprocess, use real git against temp directories. Test failure paths harder than success paths
 - **Universal mock**: All test files mock `../src/logger.js` to prevent file I/O during tests (exception: `logger.test.js` tests the real logger)

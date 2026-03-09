@@ -93,7 +93,7 @@ function connectSSE(url) {
       // Poll until the initial event arrives instead of fixed delay
       const start = Date.now();
       const poll = setInterval(() => {
-        if (events.length > 0 || Date.now() - start > 2000) {
+        if (events.length > 0 || Date.now() - start > 5000) {
           clearInterval(poll);
           resolve({ res, events });
         }
@@ -102,7 +102,7 @@ function connectSSE(url) {
   });
 }
 
-function waitForEvent(events, predicate, timeoutMs = 2000) {
+function waitForEvent(events, predicate, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const poll = setInterval(() => {

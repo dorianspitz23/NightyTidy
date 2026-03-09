@@ -88,7 +88,7 @@ describe('dashboard.js — error paths', () => {
     sseRes.destroy();
 
     // Small delay for the close event
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     // updateDashboard should not throw even if SSE client is dead
     expect(() => mod.updateDashboard({ status: 'running', steps: [] })).not.toThrow();

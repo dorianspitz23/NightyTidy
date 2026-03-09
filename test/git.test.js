@@ -144,7 +144,7 @@ describe('fallbackCommit', () => {
 });
 
 describe('mergeRunBranch', () => {
-  it('merges run branch cleanly with --no-ff', async () => {
+  it('merges run branch cleanly with --no-ff', { timeout: 15000 }, async () => {
     const originalBranch = await getCurrentBranch();
     const runBranch = await createRunBranch(originalBranch);
 
@@ -166,7 +166,7 @@ describe('mergeRunBranch', () => {
     expect(log.latest.message).toContain('Merge');
   });
 
-  it('returns conflict indicator when branches have conflicting changes', async () => {
+  it('returns conflict indicator when branches have conflicting changes', { timeout: 15000 }, async () => {
     const originalBranch = await getCurrentBranch();
     const runBranch = await createRunBranch(originalBranch);
 

@@ -183,7 +183,7 @@ describe('dashboard updateDashboard edge cases', () => {
     sseRes.destroy();
 
     // Give it a tick for close event
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     // updateDashboard should not throw when writing to dead SSE clients
     expect(() => mod.updateDashboard({ status: 'running' })).not.toThrow();

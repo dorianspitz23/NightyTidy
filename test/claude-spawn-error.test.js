@@ -66,46 +66,52 @@ describe('claude.js — spawn error path', () => {
     expect(result.exitCode).toBe(-1);
   });
 
-  it('retries on spawn failure and eventually succeeds', async () => {
-    vi.useFakeTimers();
+  describe('retry with fake timers', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
 
-    let callCount = 0;
-    spawn.mockImplementation(() => {
-      callCount++;
-      if (callCount <= 2) {
-        throw new Error('Temporary ENOENT');
-      }
-      // Third call succeeds
-      const child = new EventEmitter();
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-      child.stdin = { write: vi.fn(), end: vi.fn() };
-      child.kill = vi.fn();
-      process.nextTick(() => {
-        child.stdout.emit('data', Buffer.from('Success output'));
-        child.emit('close', 0);
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('retries on spawn failure and eventually succeeds', async () => {
+      let callCount = 0;
+      spawn.mockImplementation(() => {
+        callCount++;
+        if (callCount <= 2) {
+          throw new Error('Temporary ENOENT');
+        }
+        // Third call succeeds
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.stdin = { write: vi.fn(), end: vi.fn() };
+        child.kill = vi.fn();
+        process.nextTick(() => {
+          child.stdout.emit('data', Buffer.from('Success output'));
+          child.emit('close', 0);
+        });
+        return child;
       });
-      return child;
+
+      const { runPrompt } = await import('../src/claude.js');
+
+      const resultPromise = runPrompt('test prompt', '/fake', {
+        label: 'test',
+        retries: 3,
+      });
+
+      // Advance through the retry delays (10s each)
+      await vi.advanceTimersByTimeAsync(11000);
+      await vi.advanceTimersByTimeAsync(11000);
+
+      const result = await resultPromise;
+
+      // First two attempts fail with spawn error, third succeeds
+      expect(result.success).toBe(true);
+      expect(result.attempts).toBe(3);
     });
-
-    const { runPrompt } = await import('../src/claude.js');
-
-    const resultPromise = runPrompt('test prompt', '/fake', {
-      label: 'test',
-      retries: 3,
-    });
-
-    // Advance through the retry delays (10s each)
-    await vi.advanceTimersByTimeAsync(11000);
-    await vi.advanceTimersByTimeAsync(11000);
-
-    const result = await resultPromise;
-
-    // First two attempts fail with spawn error, third succeeds
-    expect(result.success).toBe(true);
-    expect(result.attempts).toBe(3);
-
-    vi.useRealTimers();
   });
 
   it('includes duration in spawn error result', async () => {
