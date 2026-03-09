@@ -128,8 +128,8 @@ function spawnDashboardServer(projectDir) {
           child.stdout.removeAllListeners();
           child.unref();
           try {
-            const info = JSON.parse(output.trim());
-            return resolve({ url: info.url, pid: info.pid });
+            const serverInfo = JSON.parse(output.trim());
+            return resolve({ url: serverInfo.url, pid: serverInfo.pid });
           } catch {
             resolve(null);
           }
