@@ -36,6 +36,7 @@ function handleSSE(res) {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
+    'X-Content-Type-Options': 'nosniff',
   });
 
   // Send current state immediately
@@ -51,8 +52,14 @@ function handleSSE(res) {
 }
 
 function handleStop(req, res, onStop) {
+  const MAX_BODY = 1024; // 1KB — more than enough for a JSON token payload
   let body = '';
-  req.on('data', chunk => { body += chunk; });
+  let truncated = false;
+  req.on('data', chunk => {
+    if (truncated) return;
+    body += chunk;
+    if (body.length > MAX_BODY) { truncated = true; body = body.slice(0, MAX_BODY); }
+  });
   req.on('end', () => {
     // Verify CSRF token to prevent cross-origin stop requests
     try {

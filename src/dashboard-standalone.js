@@ -58,6 +58,7 @@ function handleRequest(req, res) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'X-Content-Type-Options': 'nosniff',
     });
     if (currentState) {
       res.write(`event: state\ndata: ${JSON.stringify(currentState)}\n\n`);
@@ -66,8 +67,14 @@ function handleRequest(req, res) {
     res.on('close', () => sseClients.delete(res));
   } else if (req.method === 'POST' && req.url === '/stop') {
     // CSRF-protected stop endpoint — no-op in orchestrator mode (abort is handled externally)
+    const MAX_BODY = 1024;
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    let truncated = false;
+    req.on('data', chunk => {
+      if (truncated) return;
+      body += chunk;
+      if (body.length > MAX_BODY) { truncated = true; body = body.slice(0, MAX_BODY); }
+    });
     req.on('end', () => {
       try {
         const parsed = JSON.parse(body || '{}');
