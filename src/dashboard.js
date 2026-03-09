@@ -58,17 +58,17 @@ function handleStop(req, res, onStop) {
     try {
       const parsed = JSON.parse(body || '{}');
       if (parsed.token !== csrfToken) {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
         res.end(JSON.stringify({ error: 'Invalid token' }));
         return;
       }
     } catch {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify({ error: 'Invalid token' }));
       return;
     }
     try { onStop(); } catch { /* abort may throw if already aborted */ }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
     res.end(JSON.stringify({ ok: true }));
   });
 }
@@ -81,7 +81,7 @@ function handleRequest(req, res, onStop) {
   } else if (req.method === 'POST' && req.url === '/stop') {
     handleStop(req, res, onStop);
   } else {
-    res.writeHead(404);
+    res.writeHead(404, { 'Content-Type': 'text/plain', 'X-Content-Type-Options': 'nosniff' });
     res.end('Not found');
   }
 }

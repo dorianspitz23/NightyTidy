@@ -72,20 +72,20 @@ function handleRequest(req, res) {
       try {
         const parsed = JSON.parse(body || '{}');
         if (parsed.token !== csrfToken) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
           res.end(JSON.stringify({ error: 'Invalid token' }));
           return;
         }
       } catch {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
         res.end(JSON.stringify({ error: 'Invalid token' }));
         return;
       }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify({ ok: true, message: 'Stop not supported in orchestrator mode' }));
     });
   } else {
-    res.writeHead(404);
+    res.writeHead(404, { 'Content-Type': 'text/plain', 'X-Content-Type-Options': 'nosniff' });
     res.end('Not found');
   }
 }
