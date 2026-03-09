@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'fs';
 import { spawn } from 'child_process';
+import { platform } from 'os';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -103,7 +104,7 @@ function cleanupDashboard(projectDir) {
 function spawnDashboardServer(projectDir) {
   try {
     const serverScript = fileURLToPath(new URL('./dashboard-standalone.js', import.meta.url));
-    const useShell = process.platform === 'win32';
+    const useShell = platform() === 'win32';
 
     const child = spawn('node', [serverScript, projectDir], {
       detached: true,
