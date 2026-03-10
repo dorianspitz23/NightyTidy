@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, renameSync } from 'fs';
 import { spawn } from 'child_process';
 import { platform } from 'os';
 import { fileURLToPath } from 'url';
@@ -40,7 +40,12 @@ function readState(projectDir) {
 }
 
 function writeState(projectDir, state) {
-  writeFileSync(statePath(projectDir), JSON.stringify(state, null, 2), 'utf8');
+  // Atomic write: write to temp file then rename, so a crash mid-write
+  // never leaves a corrupted (partial JSON) state file on disk.
+  const fp = statePath(projectDir);
+  const tmp = fp + '.tmp';
+  writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
+  renameSync(tmp, fp);
 }
 
 function deleteState(projectDir) {
