@@ -200,6 +200,7 @@ describe('runStep', () => {
   beforeEach(() => {
     existsSync.mockReturnValue(true);
     readFileSync.mockReturnValue(JSON.stringify(validState));
+    getCurrentBranch.mockResolvedValue('nightytidy/run-2026-03-06-1430');
   });
 
   it('executes a step and returns success result', async () => {
@@ -320,6 +321,26 @@ describe('runStep', () => {
     const result = await runStep('/fake/project', 2);
 
     expect(result.remainingSteps).toEqual([3]);
+  });
+
+  it('fails when current branch does not match run branch', async () => {
+    getCurrentBranch.mockResolvedValue('master');
+    executeSingleStep.mockResolvedValue({
+      step: { number: 1, name: 'Documentation' },
+      status: 'completed',
+      output: 'done',
+      duration: 120000,
+      attempts: 1,
+      error: null,
+    });
+
+    const result = await runStep('/fake/project', 1);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Expected branch');
+    expect(result.error).toContain('nightytidy/run-2026-03-06-1430');
+    expect(result.error).toContain('master');
+    expect(executeSingleStep).not.toHaveBeenCalled();
   });
 });
 
@@ -522,6 +543,7 @@ describe('dashboard integration', () => {
     };
     existsSync.mockReturnValue(true);
     readFileSync.mockReturnValue(JSON.stringify(validState));
+    getCurrentBranch.mockResolvedValue('nightytidy/run-2026-03-06-1430');
     executeSingleStep.mockResolvedValue({
       step: { number: 1, name: 'Documentation' },
       status: 'completed',

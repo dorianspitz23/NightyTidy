@@ -285,6 +285,17 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
 
     initGit(projectDir);
 
+    // Verify we're on the expected run branch — prevents steps from running
+    // on the wrong branch if git state changed between orchestrator commands
+    const currentBranch = await getCurrentBranch();
+    if (currentBranch !== state.runBranch) {
+      return fail(
+        `Expected branch "${state.runBranch}" but found "${currentBranch}". ` +
+        'The working tree may have been modified between orchestrator commands. ' +
+        `Check out the run branch and retry: git checkout ${state.runBranch}`
+      );
+    }
+
     const stepTimeout = timeout ?? state.timeout ?? undefined;
 
     info(`Orchestrator: running step ${stepNumber} — ${step.name}`);
