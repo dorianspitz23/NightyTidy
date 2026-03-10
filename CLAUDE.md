@@ -349,3 +349,7 @@ When you learn something worth preserving, put it in the right place:
 | `orchestrator.md` | Changing orchestrator mode (JSON API, state file, dashboard) |
 | `report-generation.md` | Changing report format or CLAUDE.md auto-update |
 | `pitfalls.md` | Debugging platform-specific or subprocess issues |
+
+## NightyTidy — Last Run
+
+Last run: 2026-03-10. To undo, reset to git tag `nightytidy-before-2026-03-10-1003`.
