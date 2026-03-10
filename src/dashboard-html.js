@@ -1,3 +1,8 @@
+/**
+ * Return the complete dashboard HTML page with embedded CSS and JavaScript.
+ * @param {string} csrfToken - CSRF token to embed in the page for the stop button.
+ * @returns {string} Complete HTML document.
+ */
 export function getHTML(csrfToken) {
   return `<!DOCTYPE html>
 <html lang="en">

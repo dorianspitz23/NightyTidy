@@ -4,6 +4,10 @@ import { info, warn } from './logger.js';
 
 let cachedVersion;
 
+/**
+ * Get the NightyTidy version from package.json. Falls back to '0.1.0'.
+ * @returns {string} Semver version string.
+ */
 export function getVersion() {
   if (cachedVersion) return cachedVersion;
   try {
@@ -15,6 +19,11 @@ export function getVersion() {
   return cachedVersion;
 }
 
+/**
+ * Format a duration in milliseconds to a human-readable string (e.g. "2h 15m" or "3m 42s").
+ * @param {number} ms - Duration in milliseconds.
+ * @returns {string} Formatted duration.
+ */
 export function formatDuration(ms) {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -98,6 +107,12 @@ function buildUndoSection(metadata) {
   );
 }
 
+/**
+ * Generate NIGHTYTIDY-REPORT.md and update CLAUDE.md with run info. Warns but never throws.
+ * @param {{ results: Array<{ step: { number: number, name: string }, status: string, duration: number, attempts: number, error: string | null }>, completedCount: number, failedCount: number }} results - Execution results.
+ * @param {string | null} narration - Narrated changelog text, or null for fallback.
+ * @param {{ projectDir: string, branchName: string, tagName: string, originalBranch: string, startTime: number, endTime: number }} metadata - Run metadata.
+ */
 export function generateReport(results, narration, metadata) {
   const date = formatDate(metadata.startTime);
 

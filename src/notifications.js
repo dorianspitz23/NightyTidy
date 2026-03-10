@@ -1,6 +1,11 @@
 import notifier from 'node-notifier';
 import { debug, warn } from './logger.js';
 
+/**
+ * Send a desktop notification. Fire-and-forget — errors are silently swallowed.
+ * @param {string} title - Notification title.
+ * @param {string} message - Notification body text.
+ */
 export function notify(title, message) {
   try {
     notifier.notify({

@@ -25,8 +25,11 @@ function verifyStepsIntegrity(steps) {
   return true;
 }
 
-// Safety preamble prepended to every Claude subprocess prompt.
-// Prevents destructive operations that conflict with NightyTidy's orchestration.
+/**
+ * Safety preamble prepended to every Claude subprocess prompt.
+ * Prevents destructive operations that conflict with NightyTidy's orchestration.
+ * @type {string}
+ */
 export const SAFETY_PREAMBLE =
   'IMPORTANT CONSTRAINTS (from the NightyTidy orchestrator — always follow these):\n' +
   '- Do NOT delete any existing files. Create new files or modify existing ones only.\n' +
@@ -46,6 +49,13 @@ function makeStepResult(step, status, result, duration) {
   };
 }
 
+/**
+ * Execute a single improvement step: run prompt, doc update, commit verification. Never throws.
+ * @param {{ number: number, name: string, prompt: string }} step - Step definition from STEPS array.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @param {{ signal?: AbortSignal, timeout?: number }} [opts]
+ * @returns {Promise<{ step: { number: number, name: string }, status: 'completed' | 'failed', output: string, duration: number, attempts: number, error: string | null }>}
+ */
 export async function executeSingleStep(step, projectDir, { signal, timeout } = {}) {
   const stepLabel = `Step ${step.number}: ${step.name}`;
   info(`${stepLabel} — starting`);
@@ -100,6 +110,13 @@ export async function executeSingleStep(step, projectDir, { signal, timeout } = 
   return makeStepResult(step, 'completed', result, duration);
 }
 
+/**
+ * Execute multiple improvement steps sequentially. Never throws — failed steps are recorded and the run continues.
+ * @param {Array<{ number: number, name: string, prompt: string }>} selectedSteps - Steps to execute.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @param {{ signal?: AbortSignal, timeout?: number, onStepStart?: Function, onStepComplete?: Function, onStepFail?: Function }} [opts]
+ * @returns {Promise<{ results: Array<object>, totalDuration: number, completedCount: number, failedCount: number }>}
+ */
 export async function executeSteps(selectedSteps, projectDir, { signal, timeout, onStepStart, onStepComplete, onStepFail } = {}) {
   verifyStepsIntegrity(STEPS);
 

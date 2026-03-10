@@ -129,6 +129,12 @@ function spawnTuiWindow() {
   }
 }
 
+/**
+ * Start the dashboard HTTP server and TUI window. Errors are swallowed — dashboard failure must not crash a run.
+ * @param {object} initialState - Initial progress state to serve.
+ * @param {{ onStop: () => void, projectDir: string }} opts - Stop callback and project directory.
+ * @returns {Promise<{ url: string | null, port: number | null } | null>} Dashboard info, `{ url: null, port: null }` if only TUI is running, or `null` on complete failure.
+ */
 export async function startDashboard(initialState, { onStop, projectDir }) {
   try {
     csrfToken = randomBytes(16).toString('hex');
@@ -171,6 +177,10 @@ export async function startDashboard(initialState, { onStop, projectDir }) {
   }
 }
 
+/**
+ * Push updated progress state to the TUI file and all SSE clients.
+ * @param {object} state - Current progress state.
+ */
 export function updateDashboard(state) {
   currentState = state;
 
@@ -194,6 +204,10 @@ export function updateDashboard(state) {
   }
 }
 
+/**
+ * Stop the dashboard: close HTTP server, clean up SSE connections, delete ephemeral files.
+ * Safe to call multiple times or when no server is running.
+ */
 export function stopDashboard() {
   if (shutdownTimer) {
     clearTimeout(shutdownTimer);
@@ -232,6 +246,10 @@ export function stopDashboard() {
   currentState = null;
 }
 
+/**
+ * Schedule dashboard shutdown after a brief delay (allows final SSE events to reach clients).
+ * Only used on the success path — error/abort paths call `stopDashboard()` directly.
+ */
 export function scheduleShutdown() {
   shutdownTimer = setTimeout(() => stopDashboard(), SHUTDOWN_DELAY);
 }

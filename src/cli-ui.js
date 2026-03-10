@@ -10,6 +10,11 @@ import { updateDashboard } from './dashboard.js';
 const PROGRESS_SUMMARY_INTERVAL = 5; // Print a summary every N completed steps
 const DESC_MAX_LENGTH = 72;
 
+/**
+ * Extract a brief description from a step prompt (first sentence, truncated to 72 chars).
+ * @param {string} prompt - The full prompt text.
+ * @returns {string} Brief description or empty string.
+ */
 export function extractStepDescription(prompt) {
   // Grab the first two sentences from the prompt to use as a brief description.
   // Strip markdown heading prefixes and common prompt preambles.
@@ -21,6 +26,13 @@ export function extractStepDescription(prompt) {
   return desc;
 }
 
+/**
+ * Build step lifecycle callbacks for the executor loop (spinner updates, progress summaries, dashboard state).
+ * @param {import('ora').Ora} spinner - Active ora spinner instance.
+ * @param {Array<{ number: number, name: string }>} selected - Selected steps array.
+ * @param {object | null} dashState - Mutable dashboard state object, or null if no dashboard.
+ * @returns {{ onStepStart: Function, onStepComplete: Function, onStepFail: Function }}
+ */
 export function buildStepCallbacks(spinner, selected, dashState) {
   const stepStartTimes = new Map();
   let runStartTime = null;
@@ -88,6 +100,12 @@ export function buildStepCallbacks(spinner, selected, dashState) {
   };
 }
 
+/**
+ * Print the final completion summary to the terminal and send desktop notifications.
+ * @param {{ completedCount: number, failedCount: number, totalDuration: number, results: Array<{ status: string, step: { name: string } }> }} executionResults
+ * @param {{ success: boolean, conflict?: boolean }} mergeResult
+ * @param {{ runBranch: string, tagName: string }} opts
+ */
 export function printCompletionSummary(executionResults, mergeResult, { runBranch, tagName }) {
   const totalSteps = executionResults.completedCount + executionResults.failedCount;
   const durationStr = formatDuration(executionResults.totalDuration);
@@ -136,6 +154,12 @@ export function printCompletionSummary(executionResults, mergeResult, { runBranc
   }
 }
 
+/**
+ * Determine which steps to run based on CLI options or interactive selection.
+ * Exits the process if no valid steps are selected or if non-TTY mode lacks required flags.
+ * @param {{ all?: boolean, steps?: string }} opts - CLI options from Commander.
+ * @returns {Promise<Array<{ number: number, name: string, prompt: string }>>} Selected steps.
+ */
 export async function selectSteps(opts) {
   if (opts.all) {
     info(`Running all ${STEPS.length} steps (--all)`);
@@ -144,7 +168,7 @@ export async function selectSteps(opts) {
 
   if (opts.steps) {
     const requestedNums = opts.steps.split(',').map(s => parseInt(s.trim(), 10));
-    const invalid = requestedNums.filter(n => isNaN(n) || n < 1 || n > STEPS.length);
+    const invalid = requestedNums.filter(n => Number.isNaN(n) || n < 1 || n > STEPS.length);
     if (invalid.length > 0) {
       console.log(chalk.red(`Invalid step number(s): ${invalid.join(', ')}. Valid range: 1-${STEPS.length}.`));
       process.exit(1);
@@ -180,6 +204,7 @@ export async function selectSteps(opts) {
   return selected;
 }
 
+/** Print the welcome banner to stdout. */
 export function showWelcome() {
   console.log(chalk.cyan(
     '\n' +
@@ -201,6 +226,7 @@ export function showWelcome() {
   ));
 }
 
+/** Print all available steps with descriptions to stdout. */
 export function printStepList() {
   console.log(chalk.cyan(`\nAvailable steps (${STEPS.length} total):\n`));
   const numWidth = String(STEPS.length).length;

@@ -159,6 +159,12 @@ function stopDashboardServer(pid) {
   } catch { /* already dead */ }
 }
 
+/**
+ * Initialize an orchestrated run: pre-checks, git setup, state file, dashboard. Never throws.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @param {{ steps?: string, timeout?: number }} [opts] - Comma-separated step numbers and per-step timeout in ms.
+ * @returns {Promise<{ success: true, runBranch: string, tagName: string, originalBranch: string, selectedSteps: number[], dashboardUrl: string | null } | { success: false, error: string }>}
+ */
 export async function initRun(projectDir, { steps, timeout } = {}) {
   try {
     initLogger(projectDir, { quiet: true });
@@ -230,6 +236,13 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
   }
 }
 
+/**
+ * Run a single step in an orchestrated run. Never throws.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @param {number} stepNumber - Step number to execute.
+ * @param {{ timeout?: number }} [opts] - Per-step timeout in ms.
+ * @returns {Promise<{ success: true, step: number, name: string, status: string, duration: number, durationFormatted: string, attempts: number, remainingSteps: number[] } | { success: false, error: string }>}
+ */
 export async function runStep(projectDir, stepNumber, { timeout } = {}) {
   try {
     initLogger(projectDir, { quiet: true });
@@ -302,6 +315,11 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
   }
 }
 
+/**
+ * Finish an orchestrated run: changelog, report, merge, dashboard shutdown, cleanup. Never throws.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @returns {Promise<{ success: true, completed: number, failed: number, totalDurationFormatted: string, merged: boolean, mergeConflict: boolean, reportPath: string, tagName: string, runBranch: string } | { success: false, error: string }>}
+ */
 export async function finishRun(projectDir) {
   try {
     initLogger(projectDir, { quiet: true });

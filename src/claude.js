@@ -20,9 +20,11 @@ function timeoutMessage(ms) {
   return `Claude Code timed out after ${minutes} minutes`;
 }
 
-// Remove CLAUDECODE env var so subprocess doesn't refuse to start
-// when NightyTidy is invoked from within a Claude Code session.
-// Safe because NightyTidy only uses non-interactive `claude -p` calls.
+/**
+ * Return a copy of `process.env` with `CLAUDECODE` removed so subprocess doesn't
+ * refuse to start when NightyTidy is invoked from within a Claude Code session.
+ * @returns {Record<string, string | undefined>} Cleaned environment variables.
+ */
 export function cleanEnv() {
   const env = { ...process.env };
   delete env.CLAUDECODE;
@@ -147,6 +149,13 @@ async function runOnce(prompt, cwd, timeoutMs, signal, continueSession = false) 
   return result;
 }
 
+/**
+ * Run a prompt through Claude Code with retries. Never throws — returns a result object.
+ * @param {string} prompt - The prompt text to send to Claude Code.
+ * @param {string} cwd - Working directory for the Claude Code subprocess.
+ * @param {{ timeout?: number, retries?: number, label?: string, signal?: AbortSignal, continueSession?: boolean }} [options]
+ * @returns {Promise<{ success: boolean, output: string, error: string | null, exitCode: number, duration: number, attempts: number }>}
+ */
 export async function runPrompt(prompt, cwd, options = {}) {
   const timeoutMs = options.timeout ?? DEFAULT_TIMEOUT;
   const maxRetries = options.retries ?? DEFAULT_RETRIES;

@@ -209,6 +209,13 @@ async function checkExistingBranches(git) {
   info('Pre-check: no branch conflicts \u2713');
 }
 
+/**
+ * Run all pre-flight checks. Throws with user-friendly messages on failure.
+ * Checks: git installed, git repo, has commits, Claude CLI installed, Claude authenticated, disk space, existing branches.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @param {import('simple-git').SimpleGit} git - Initialized simple-git instance.
+ * @returns {Promise<void>}
+ */
 export async function runPreChecks(projectDir, git) {
   await checkGitInstalled();
   await checkGitRepo(git);

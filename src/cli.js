@@ -48,6 +48,10 @@ async function handleAbortedRun(executionResults, { projectDir, runBranch, tagNa
   process.exit(0);
 }
 
+/**
+ * Main CLI entry point. Parses arguments, runs the full lifecycle, and handles all errors.
+ * @returns {Promise<void>}
+ */
 export async function run() {
   const program = new Command();
   program

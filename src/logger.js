@@ -9,6 +9,11 @@ let logFilePath = null;
 let minLevel = LEVELS.info;
 let logQuiet = false;
 
+/**
+ * Initialize the file logger. Must be called before any other module logs.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @param {{ quiet?: boolean }} [opts] - Options. `quiet` suppresses stdout (for orchestrator JSON mode).
+ */
 export function initLogger(projectDir, { quiet = false } = {}) {
   logFilePath = path.join(projectDir, 'nightytidy-run.log');
   logQuiet = quiet;
@@ -48,7 +53,11 @@ function log(level, message) {
   }
 }
 
+/** @param {string} message */
 export function debug(message) { log('debug', message); }
+/** @param {string} message */
 export function info(message)  { log('info', message); }
+/** @param {string} message */
 export function warn(message)  { log('warn', message); }
+/** @param {string} message */
 export function error(message) { log('error', message); }

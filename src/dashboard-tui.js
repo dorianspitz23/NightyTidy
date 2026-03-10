@@ -30,6 +30,11 @@ function readState() {
   }
 }
 
+/**
+ * Format milliseconds to a compact duration string (e.g. "42s", "3m 05s", "1h 02m").
+ * @param {number} ms - Duration in milliseconds.
+ * @returns {string} Formatted duration.
+ */
 export function formatMs(ms) {
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -39,6 +44,13 @@ export function formatMs(ms) {
   return `${h}h ${String(m % 60).padStart(2, '0')}m`;
 }
 
+/**
+ * Render a colored progress bar with a percentage label.
+ * @param {number} done - Number of completed steps.
+ * @param {number} total - Total number of steps.
+ * @param {boolean} [hasActive=false] - Whether a step is currently running (adds 0.5 to progress).
+ * @returns {string} Formatted progress bar string (with ANSI colors).
+ */
 export function progressBar(done, total, hasActive = false) {
   const effective = hasActive ? done + 0.5 : done;
   const pct = total > 0 ? effective / total : 0;
@@ -70,6 +82,10 @@ function stepIcon(status) {
   return chalk.dim('\u25cb');
 }
 
+/**
+ * Clear the terminal and render the full TUI progress display.
+ * @param {object} state - Progress state read from the JSON file.
+ */
 export function render(state) {
   const lines = [];
 
