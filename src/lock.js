@@ -27,12 +27,8 @@ function isLockStale(lockData) {
 
   // Lock is older than 24 hours — treat as stale regardless of PID
   // (handles PID recycling on Windows where process.kill(pid,0) is unreliable)
-  if (lockData.started) {
-    const age = Date.now() - new Date(lockData.started).getTime();
-    if (age > MAX_LOCK_AGE_MS) return true;
-  }
-
-  return false;
+  const age = lockData.started ? Date.now() - new Date(lockData.started).getTime() : 0;
+  return age > MAX_LOCK_AGE_MS;
 }
 
 function promptOverride(lockData) {
