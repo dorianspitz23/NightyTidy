@@ -161,7 +161,9 @@ export async function startDashboard(initialState, { onStop, projectDir }) {
       server.listen(0, '127.0.0.1', () => {
         // Guard against stopDashboard() closing the server before this callback fires
         if (!server) { resolve({ url: null, port: null }); return; }
-        const port = server.address().port;
+        const addr = server.address();
+        if (!addr) { resolve({ url: null, port: null }); return; }
+        const port = addr.port;
         const url = `http://localhost:${port}`;
 
         try {

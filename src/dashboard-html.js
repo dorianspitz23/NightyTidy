@@ -274,8 +274,10 @@ let elapsedInterval = null;
 const evtSource = new EventSource('/events');
 
 evtSource.addEventListener('state', (e) => {
-  state = JSON.parse(e.data);
-  render(state);
+  try {
+    state = JSON.parse(e.data);
+    render(state);
+  } catch { /* malformed SSE data — skip this event */ }
 });
 
 evtSource.onerror = () => {

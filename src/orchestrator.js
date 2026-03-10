@@ -91,7 +91,7 @@ function buildProgressState(state) {
         number: num,
         name: step?.name || `Step ${num}`,
         status: completed ? 'completed' : failed ? 'failed' : 'pending',
-        duration: completed?.duration || failed?.duration || null,
+        duration: completed?.duration ?? failed?.duration ?? null,
       };
     }),
     completedCount: state.completedSteps.length,
@@ -218,7 +218,7 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
       completedSteps: [],
       failedSteps: [],
       startTime: Date.now(),
-      timeout: timeout || null,
+      timeout: timeout ?? null,
       dashboardPid: null,
       dashboardUrl: null,
     };
@@ -285,7 +285,7 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
 
     initGit(projectDir);
 
-    const stepTimeout = timeout || state.timeout || undefined;
+    const stepTimeout = timeout ?? state.timeout ?? undefined;
 
     info(`Orchestrator: running step ${stepNumber} — ${step.name}`);
 
@@ -373,7 +373,7 @@ export async function finishRun(projectDir) {
       info('Generating narrated changelog...');
       const changelogResult = await runPrompt(SAFETY_PREAMBLE + CHANGELOG_PROMPT, projectDir, {
         label: 'Narrated changelog',
-        timeout: state.timeout || undefined,
+        timeout: state.timeout ?? undefined,
       });
       narration = changelogResult.success ? changelogResult.output : null;
       if (!narration) warn('Narrated changelog generation failed — using fallback text');

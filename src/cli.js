@@ -62,11 +62,11 @@ export async function run() {
     .option('--steps <numbers>', 'Run specific steps by number (comma-separated, e.g. --steps 1,5,12)')
     .option('--list', 'List all available steps and exit')
     .option('--setup', 'Add NightyTidy integration to this project\u2019s CLAUDE.md so Claude Code knows how to use it')
-    .option('--timeout <minutes>', 'Timeout per step in minutes (default: 45)', parseInt)
+    .option('--timeout <minutes>', 'Timeout per step in minutes (default: 45)', (v) => parseInt(v, 10))
     .option('--dry-run', 'Run pre-checks and show selected steps without executing')
     .option('--json', 'Output as JSON (use with --list)')
     .option('--init-run', 'Initialize an orchestrated run (pre-checks, git setup, state file)')
-    .option('--run-step <N>', 'Run a single step in an orchestrated run', parseInt)
+    .option('--run-step <N>', 'Run a single step in an orchestrated run', (v) => parseInt(v, 10))
     .option('--finish-run', 'Finish an orchestrated run (report, merge, cleanup)');
 
   program.parse();
@@ -128,6 +128,7 @@ export async function run() {
   process.on('SIGINT', () => {
     if (interrupted) {
       console.log('\nForce stopping.');
+      try { stopDashboard(); } catch { /* best effort cleanup */ }
       process.exit(1);
     }
     interrupted = true;
