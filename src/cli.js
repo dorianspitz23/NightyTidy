@@ -16,6 +16,11 @@ import { acquireLock } from './lock.js';
 import { initRun, runStep, finishRun } from './orchestrator.js';
 import { extractStepDescription, buildStepCallbacks, showWelcome, printStepList, selectSteps, printCompletionSummary } from './cli-ui.js';
 
+function exitWithJson(result) {
+  console.log(JSON.stringify(result));
+  process.exit(result.success ? 0 : 1);
+}
+
 async function handleAbortedRun(executionResults, { projectDir, runBranch, tagName, originalBranch }) {
   info('Run interrupted by user');
   await generateReport(executionResults, null, {
@@ -82,21 +87,15 @@ export async function run() {
   }
 
   if (opts.initRun) {
-    const result = await initRun(projectDir, { steps: opts.steps, timeout: timeoutMs });
-    console.log(JSON.stringify(result));
-    process.exit(result.success ? 0 : 1);
+    exitWithJson(await initRun(projectDir, { steps: opts.steps, timeout: timeoutMs }));
   }
 
   if (opts.runStep !== undefined) {
-    const result = await runStep(projectDir, opts.runStep, { timeout: timeoutMs });
-    console.log(JSON.stringify(result));
-    process.exit(result.success ? 0 : 1);
+    exitWithJson(await runStep(projectDir, opts.runStep, { timeout: timeoutMs }));
   }
 
   if (opts.finishRun) {
-    const result = await finishRun(projectDir);
-    console.log(JSON.stringify(result));
-    process.exit(result.success ? 0 : 1);
+    exitWithJson(await finishRun(projectDir));
   }
 
   let spinner;
