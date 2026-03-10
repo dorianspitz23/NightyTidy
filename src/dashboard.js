@@ -11,6 +11,7 @@ const SHUTDOWN_DELAY = 3000;
 const URL_FILENAME = 'nightytidy-dashboard.url';
 const PROGRESS_FILENAME = 'nightytidy-progress.json';
 
+let serverStartTime = null;
 let server = null;
 let sseClients = new Set();
 let currentState = null;
@@ -79,9 +80,28 @@ function handleStop(req, res, onStop) {
   });
 }
 
+function handleHealth(res) {
+  const state = currentState || {};
+  const body = {
+    status: 'healthy',
+    uptime: serverStartTime ? Date.now() - serverStartTime : 0,
+    sseClients: sseClients.size,
+    run: {
+      status: state.status || null,
+      totalSteps: state.totalSteps || 0,
+      completedCount: state.completedCount || 0,
+      failedCount: state.failedCount || 0,
+    },
+  };
+  res.writeHead(200, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
+  res.end(JSON.stringify(body));
+}
+
 function handleRequest(req, res, onStop) {
   if (req.method === 'GET' && req.url === '/') {
     serveHTML(res);
+  } else if (req.method === 'GET' && req.url === '/health') {
+    handleHealth(res);
   } else if (req.method === 'GET' && req.url === '/events') {
     handleSSE(res);
   } else if (req.method === 'POST' && req.url === '/stop') {
@@ -138,6 +158,7 @@ function spawnTuiWindow() {
 export async function startDashboard(initialState, { onStop, projectDir }) {
   try {
     csrfToken = randomBytes(16).toString('hex');
+    serverStartTime = Date.now();
     currentState = initialState;
     urlFilePath = path.join(projectDir, URL_FILENAME);
     progressFilePath = path.join(projectDir, PROGRESS_FILENAME);
@@ -230,6 +251,7 @@ export function stopDashboard() {
   }
 
   csrfToken = null;
+  serverStartTime = null;
 
   if (!server) {
     currentState = null;

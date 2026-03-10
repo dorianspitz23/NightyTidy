@@ -149,6 +149,21 @@ describe('dashboard-standalone.js', () => {
     expect(res.status).toBe(404);
   });
 
+  it('serves health check on GET /health', async () => {
+    const info = await startServer();
+    const res = await fetch(`${info.url}/health`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/json');
+
+    const body = res.json();
+    expect(body.status).toBe('healthy');
+    expect(body.uptime).toBeGreaterThanOrEqual(0);
+    expect(typeof body.sseClients).toBe('number');
+    expect(body.run).toBeDefined();
+    expect(body.run.totalSteps).toBe(0);
+  });
+
   it('serves SSE events on GET /events', async () => {
     const info = await startServer();
 

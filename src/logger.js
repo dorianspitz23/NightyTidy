@@ -1,4 +1,5 @@
 import { appendFileSync, writeFileSync } from 'fs';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import chalk from 'chalk';
 
@@ -8,6 +9,7 @@ const LEVEL_COLORS = { debug: 'dim', warn: 'yellow', error: 'red' };
 let logFilePath = null;
 let minLevel = LEVELS.info;
 let logQuiet = false;
+let runId = null;
 
 /**
  * Initialize the file logger. Must be called before any other module logs.
@@ -17,7 +19,8 @@ let logQuiet = false;
 export function initLogger(projectDir, { quiet = false } = {}) {
   logFilePath = path.join(projectDir, 'nightytidy-run.log');
   logQuiet = quiet;
-  writeFileSync(logFilePath, '', 'utf8');
+  runId = randomUUID().slice(0, 8);
+  writeFileSync(logFilePath, `# NightyTidy run ${runId} — ${new Date().toISOString()}\n`, 'utf8');
 
   const envLevel = (process.env.NIGHTYTIDY_LOG_LEVEL || 'info').toLowerCase();
   if (process.env.NIGHTYTIDY_LOG_LEVEL && !(envLevel in LEVELS)) {
@@ -61,3 +64,6 @@ export function info(message)  { log('info', message); }
 export function warn(message)  { log('warn', message); }
 /** @param {string} message */
 export function error(message) { log('error', message); }
+
+/** @returns {string | null} The 8-char run correlation ID, or null if logger not initialized. */
+export function getRunId() { return runId; }

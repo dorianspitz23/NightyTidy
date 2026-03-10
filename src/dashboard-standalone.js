@@ -22,6 +22,7 @@ const progressPath = `${projectDir}/nightytidy-progress.json`;
 const urlFilePath = `${projectDir}/nightytidy-dashboard.url`;
 const csrfToken = randomBytes(16).toString('hex');
 
+const serverStartTime = Date.now();
 let currentState = null;
 let currentStateJson = null;
 const sseClients = new Set();
@@ -52,10 +53,29 @@ function pollProgress() {
   } catch { /* file being written or invalid — skip this tick */ }
 }
 
+function handleHealth(res) {
+  const state = currentState || {};
+  const body = {
+    status: 'healthy',
+    uptime: Date.now() - serverStartTime,
+    sseClients: sseClients.size,
+    run: {
+      status: state.status || null,
+      totalSteps: state.totalSteps || 0,
+      completedCount: state.completedCount || 0,
+      failedCount: state.failedCount || 0,
+    },
+  };
+  res.writeHead(200, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
+  res.end(JSON.stringify(body));
+}
+
 function handleRequest(req, res) {
   if (req.method === 'GET' && req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...SECURITY_HEADERS });
     res.end(getHTML(csrfToken));
+  } else if (req.method === 'GET' && req.url === '/health') {
+    handleHealth(res);
   } else if (req.method === 'GET' && req.url === '/events') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
