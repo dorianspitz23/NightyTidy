@@ -61,11 +61,15 @@ function validateStepNumbers(numbers) {
   return null;
 }
 
-function buildProgressState(state) {
-  const doneNums = new Set([
+function getDoneNumbers(state) {
+  return new Set([
     ...state.completedSteps.map(s => s.number),
     ...state.failedSteps.map(s => s.number),
   ]);
+}
+
+function buildProgressState(state) {
+  const doneNums = getDoneNumbers(state);
   return {
     status: 'running',
     totalSteps: state.selectedSteps.length,
@@ -282,8 +286,7 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
     writeProgress(projectDir, buildProgressState(state));
 
     // Compute remaining
-    const doneNums = new Set([...state.completedSteps.map(s => s.number), ...state.failedSteps.map(s => s.number)]);
-    const remaining = state.selectedSteps.filter(n => !doneNums.has(n));
+    const remaining = state.selectedSteps.filter(n => !getDoneNumbers(state).has(n));
 
     return ok({
       step: stepNumber,
