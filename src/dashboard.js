@@ -51,6 +51,11 @@ function handleSSE(res) {
   });
 }
 
+function rejectCsrf(res) {
+  res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
+  res.end(JSON.stringify({ error: 'Invalid token' }));
+}
+
 function handleStop(req, res, onStop) {
   const MAX_BODY = 1024; // 1KB — more than enough for a JSON token payload
   let body = '';
@@ -64,15 +69,9 @@ function handleStop(req, res, onStop) {
     // Verify CSRF token to prevent cross-origin stop requests
     try {
       const parsed = JSON.parse(body || '{}');
-      if (parsed.token !== csrfToken) {
-        res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
-        res.end(JSON.stringify({ error: 'Invalid token' }));
-        return;
-      }
+      if (parsed.token !== csrfToken) { rejectCsrf(res); return; }
     } catch {
-      res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
-      res.end(JSON.stringify({ error: 'Invalid token' }));
-      return;
+      rejectCsrf(res); return;
     }
     try { onStop(); } catch { /* abort may throw if already aborted */ }
     res.writeHead(200, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
