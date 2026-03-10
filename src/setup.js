@@ -10,6 +10,10 @@ function generateStepList() {
   return STEPS.map(s => `${s.number}. **${s.name}**`).join('\n');
 }
 
+/**
+ * Generate the CLAUDE.md integration snippet for NightyTidy.
+ * @returns {string} The full markdown snippet including all rules and step list.
+ */
 export function generateIntegrationSnippet() {
   return `${MARKER_START}
 
@@ -65,6 +69,11 @@ ${generateStepList()}
 ${MARKER_END}`;
 }
 
+/**
+ * Add or update the NightyTidy integration section in the target project's CLAUDE.md.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @returns {'created' | 'appended' | 'updated'} What action was taken.
+ */
 export function setupProject(projectDir) {
   const claudeMdPath = path.join(projectDir, 'CLAUDE.md');
   const snippet = generateIntegrationSnippet();

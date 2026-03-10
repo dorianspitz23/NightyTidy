@@ -1,5 +1,4 @@
 import { Command } from 'commander';
-import checkbox from '@inquirer/checkbox';
 import ora from 'ora';
 import chalk from 'chalk';
 
@@ -10,91 +9,16 @@ import { runPrompt } from './claude.js';
 import { STEPS, CHANGELOG_PROMPT } from './prompts/steps.js';
 import { executeSteps, SAFETY_PREAMBLE } from './executor.js';
 import { notify } from './notifications.js';
-import { generateReport, formatDuration, getVersion } from './report.js';
+import { generateReport, getVersion } from './report.js';
 import { setupProject } from './setup.js';
 import { startDashboard, updateDashboard, stopDashboard, scheduleShutdown } from './dashboard.js';
 import { acquireLock } from './lock.js';
 import { initRun, runStep, finishRun } from './orchestrator.js';
+import { extractStepDescription, buildStepCallbacks, showWelcome, printStepList, selectSteps, printCompletionSummary } from './cli-ui.js';
 
-const PROGRESS_SUMMARY_INTERVAL = 5; // Print a summary every N completed steps
-const DESC_MAX_LENGTH = 72;
-
-function extractStepDescription(prompt) {
-  // Grab the first two sentences from the prompt to use as a brief description.
-  // Strip markdown heading prefixes and common prompt preambles.
-  const cleaned = prompt.replace(/^#+\s*/m, '').replace(/^You are running an overnight\s+/i, '');
-  const sentences = cleaned.match(/[^.!?\n]+[.!?]/g);
-  if (!sentences || sentences.length === 0) return '';
-  let desc = sentences[0].trim();
-  if (desc.length > DESC_MAX_LENGTH) desc = desc.slice(0, DESC_MAX_LENGTH - 1) + '\u2026';
-  return desc;
-}
-
-function buildStepCallbacks(spinner, selected, dashState) {
-  const stepStartTimes = new Map();
-  let runStartTime = null;
-  let doneCount = 0;
-  let passCount = 0;
-  let failCountLocal = 0;
-
-  function updateStepDash(idx, status) {
-    if (!dashState) return;
-    dashState.steps[idx].status = status;
-    dashState.steps[idx].duration = Date.now() - (stepStartTimes.get(idx) || Date.now());
-    if (status === 'completed') dashState.completedCount++;
-    if (status === 'failed') dashState.failedCount++;
-    updateDashboard(dashState);
-  }
-
-  function startNextSpinner(idx, total) {
-    if (idx + 1 < total) {
-      spinner.start(`\u23f3 Step ${idx + 2}/${total}: ${selected[idx + 1].name}...`);
-    }
-  }
-
-  function maybePrintProgressSummary(total) {
-    if (total <= PROGRESS_SUMMARY_INTERVAL) return;
-    if (doneCount % PROGRESS_SUMMARY_INTERVAL !== 0) return;
-    const elapsed = formatDuration(Date.now() - runStartTime);
-    const remaining = total - doneCount;
-    console.log(chalk.dim(
-      `\n   Progress: ${doneCount}/${total} done (${passCount} passed, ${failCountLocal} failed) \u2014 ${elapsed} elapsed, ${remaining} remaining\n`
-    ));
-  }
-
-  return {
-    onStepStart: (step, idx, total) => {
-      spinner.text = `\u23f3 Step ${idx + 1}/${total}: ${step.name}...`;
-      stepStartTimes.set(idx, Date.now());
-      if (!runStartTime) runStartTime = Date.now();
-      if (dashState) {
-        dashState.status = 'running';
-        dashState.currentStepIndex = idx;
-        dashState.currentStepName = step.name;
-        dashState.steps[idx].status = 'running';
-        if (!dashState.startTime) dashState.startTime = Date.now();
-        updateDashboard(dashState);
-      }
-    },
-    onStepComplete: (step, idx, total) => {
-      spinner.stop();
-      console.log(chalk.green(`\u2713 Step ${idx + 1}/${total}: ${step.name} \u2014 done`));
-      doneCount++;
-      passCount++;
-      maybePrintProgressSummary(total);
-      startNextSpinner(idx, total);
-      updateStepDash(idx, 'completed');
-    },
-    onStepFail: (step, idx, total) => {
-      spinner.stop();
-      console.log(chalk.red(`\u2717 Step ${idx + 1}/${total}: ${step.name} \u2014 failed`));
-      doneCount++;
-      failCountLocal++;
-      maybePrintProgressSummary(total);
-      startNextSpinner(idx, total);
-      updateStepDash(idx, 'failed');
-    },
-  };
+function exitWithJson(result) {
+  console.log(JSON.stringify(result));
+  process.exit(result.success ? 0 : 1);
 }
 
 async function handleAbortedRun(executionResults, { projectDir, runBranch, tagName, originalBranch }) {
@@ -124,135 +48,10 @@ async function handleAbortedRun(executionResults, { projectDir, runBranch, tagNa
   process.exit(0);
 }
 
-function printCompletionSummary(executionResults, mergeResult, { runBranch, tagName }) {
-  const totalSteps = executionResults.completedCount + executionResults.failedCount;
-  const durationStr = formatDuration(executionResults.totalDuration);
-
-  if (mergeResult.success) {
-    if (executionResults.failedCount === 0) {
-      notify('NightyTidy Complete \u2713', `All ${executionResults.completedCount} steps succeeded. See NIGHTYTIDY-REPORT.md`);
-    } else {
-      notify('NightyTidy Complete', `${executionResults.completedCount}/${totalSteps} succeeded, ${executionResults.failedCount} failed. See NIGHTYTIDY-REPORT.md`);
-    }
-  } else {
-    notify('NightyTidy Complete', `${executionResults.completedCount}/${totalSteps} steps done. Merge needs attention \u2014 see terminal.`);
-    notify('NightyTidy: Merge Conflict', `Changes are on branch ${runBranch}. See NIGHTYTIDY-REPORT.md for resolution steps.`);
-  }
-
-  if (mergeResult.success) {
-    if (executionResults.failedCount === 0) {
-      console.log(chalk.green(`\n\u2705 NightyTidy complete \u2014 ${executionResults.completedCount}/${totalSteps} steps succeeded (${durationStr})`));
-    } else {
-      console.log(chalk.yellow(`\n\u26a0\ufe0f  NightyTidy complete \u2014 ${executionResults.completedCount}/${totalSteps} steps succeeded, ${executionResults.failedCount} failed (${durationStr})`));
-    }
-    console.log(chalk.dim(`\ud83d\udcc4 Report: NIGHTYTIDY-REPORT.md`));
-    console.log(chalk.dim(`\ud83c\udff7\ufe0f  Safety tag: ${tagName}`));
-
-    if (executionResults.failedCount > 0) {
-      const failedNames = executionResults.results
-        .filter(r => r.status === 'failed')
-        .map(r => r.step.name);
-      console.log(chalk.yellow(`\n   Failed steps: ${failedNames.join(', ')}`));
-      console.log(chalk.dim('   See NIGHTYTIDY-REPORT.md for details and retry suggestions.'));
-    }
-  } else {
-    console.log(chalk.yellow(`\n\u26a0\ufe0f  NightyTidy complete \u2014 ${executionResults.completedCount}/${totalSteps} steps succeeded, but merge needs attention.`));
-    console.log(chalk.dim(`\ud83d\udcc4 Changes on branch: ${runBranch}`));
-    console.log(chalk.dim(`\ud83c\udff7\ufe0f  Safety tag: ${tagName}`));
-    console.log(chalk.yellow(
-      `\n   Your improvements are safe on: ${runBranch}\n\n` +
-      `   To merge manually:\n` +
-      `     git merge ${runBranch}\n` +
-      `     (resolve conflicts)\n` +
-      `     git commit\n\n` +
-      `   Or ask Claude Code:\n` +
-      `     "Merge the branch ${runBranch} into my current branch\n` +
-      `      and resolve any conflicts."\n`
-    ));
-  }
-}
-
-async function selectSteps(opts) {
-  if (opts.all) {
-    info(`Running all ${STEPS.length} steps (--all)`);
-    return STEPS;
-  }
-
-  if (opts.steps) {
-    const requestedNums = opts.steps.split(',').map(s => parseInt(s.trim(), 10));
-    const invalid = requestedNums.filter(n => isNaN(n) || n < 1 || n > STEPS.length);
-    if (invalid.length > 0) {
-      console.log(chalk.red(`Invalid step number(s): ${invalid.join(', ')}. Valid range: 1-${STEPS.length}.`));
-      process.exit(1);
-    }
-    const selected = STEPS.filter(step => requestedNums.includes(step.number));
-    info(`Running ${selected.length} selected step(s) (--steps ${opts.steps})`);
-    return selected;
-  }
-
-  if (!process.stdin.isTTY) {
-    console.log(chalk.red('Non-interactive mode requires --all or --steps <numbers>.'));
-    console.log(chalk.dim('  Example: npx nightytidy --all'));
-    console.log(chalk.dim('  Example: npx nightytidy --steps 1,5,12'));
-    console.log(chalk.dim('  Run npx nightytidy --list to see available steps.'));
-    process.exit(1);
-  }
-
-  const selected = await checkbox({
-    message: 'Select steps to run (Enter to run all):',
-    choices: STEPS.map(step => ({
-      name: `${step.number}. ${step.name}`,
-      value: step,
-      checked: true,
-    })),
-    pageSize: 15,
-  });
-
-  if (!selected || selected.length === 0) {
-    console.log(chalk.yellow('No steps selected. Select at least one step to continue.'));
-    process.exit(0);
-  }
-
-  return selected;
-}
-
-function showWelcome() {
-  console.log(chalk.cyan(
-    '\n' +
-    '\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n' +
-    '\u2502                                                              \u2502\n' +
-    '\u2502  Welcome to NightyTidy!                                      \u2502\n' +
-    '\u2502                                                              \u2502\n' +
-    '\u2502  NightyTidy will run 28 codebase improvement steps through   \u2502\n' +
-    '\u2502  Claude Code. This typically takes 4-8 hours.                \u2502\n' +
-    '\u2502                                                              \u2502\n' +
-    '\u2502  All changes happen on a dedicated branch and are            \u2502\n' +
-    '\u2502  automatically merged when done. You can check progress      \u2502\n' +
-    '\u2502  anytime in nightytidy-run.log.                              \u2502\n' +
-    '\u2502                                                              \u2502\n' +
-    '\u2502  A safety snapshot is created before starting \u2014 you can      \u2502\n' +
-    '\u2502  always undo everything if needed.                           \u2502\n' +
-    '\u2502                                                              \u2502\n' +
-    '\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n'
-  ));
-}
-
-function printStepList() {
-  console.log(chalk.cyan(`\nAvailable steps (${STEPS.length} total):\n`));
-  const numWidth = String(STEPS.length).length;
-  for (const step of STEPS) {
-    const num = String(step.number).padStart(numWidth);
-    const desc = extractStepDescription(step.prompt);
-    if (desc) {
-      console.log(`  ${num}. ${step.name}`);
-      console.log(chalk.dim(`      ${desc}`));
-    } else {
-      console.log(`  ${num}. ${step.name}`);
-    }
-  }
-  console.log(chalk.dim(`\nUse --steps 1,5,12 to run specific steps, or --all to run everything.`));
-}
-
+/**
+ * Main CLI entry point. Parses arguments, runs the full lifecycle, and handles all errors.
+ * @returns {Promise<void>}
+ */
 export async function run() {
   const program = new Command();
   program
@@ -263,11 +62,11 @@ export async function run() {
     .option('--steps <numbers>', 'Run specific steps by number (comma-separated, e.g. --steps 1,5,12)')
     .option('--list', 'List all available steps and exit')
     .option('--setup', 'Add NightyTidy integration to this project\u2019s CLAUDE.md so Claude Code knows how to use it')
-    .option('--timeout <minutes>', 'Timeout per step in minutes (default: 45)', parseInt)
+    .option('--timeout <minutes>', 'Timeout per step in minutes (default: 45)', (v) => parseInt(v, 10))
     .option('--dry-run', 'Run pre-checks and show selected steps without executing')
     .option('--json', 'Output as JSON (use with --list)')
     .option('--init-run', 'Initialize an orchestrated run (pre-checks, git setup, state file)')
-    .option('--run-step <N>', 'Run a single step in an orchestrated run', parseInt)
+    .option('--run-step <N>', 'Run a single step in an orchestrated run', (v) => parseInt(v, 10))
     .option('--finish-run', 'Finish an orchestrated run (report, merge, cleanup)');
 
   program.parse();
@@ -277,6 +76,10 @@ export async function run() {
   const timeoutMs = opts.timeout ? opts.timeout * 60 * 1000 : undefined;
   if (opts.timeout !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
     console.error(chalk.red(`--timeout must be a positive number of minutes (got "${opts.timeout}")`));
+    process.exit(1);
+  }
+  if (opts.timeout !== undefined && opts.timeout > 1440) {
+    console.error(chalk.red('--timeout cannot exceed 1440 minutes (24 hours). A step taking longer than that likely has an issue.'));
     process.exit(1);
   }
 
@@ -292,21 +95,15 @@ export async function run() {
   }
 
   if (opts.initRun) {
-    const result = await initRun(projectDir, { steps: opts.steps, timeout: timeoutMs });
-    console.log(JSON.stringify(result));
-    process.exit(result.success ? 0 : 1);
+    exitWithJson(await initRun(projectDir, { steps: opts.steps, timeout: timeoutMs }));
   }
 
   if (opts.runStep !== undefined) {
-    const result = await runStep(projectDir, opts.runStep, { timeout: timeoutMs });
-    console.log(JSON.stringify(result));
-    process.exit(result.success ? 0 : 1);
+    exitWithJson(await runStep(projectDir, opts.runStep, { timeout: timeoutMs }));
   }
 
   if (opts.finishRun) {
-    const result = await finishRun(projectDir);
-    console.log(JSON.stringify(result));
-    process.exit(result.success ? 0 : 1);
+    exitWithJson(await finishRun(projectDir));
   }
 
   let spinner;
@@ -319,6 +116,7 @@ export async function run() {
   // Unhandled rejection safety net
   process.on('unhandledRejection', (reason) => {
     try { logError(`Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`); } catch { /* logger may not be init */ }
+    try { stopDashboard(); } catch { /* dashboard may not be started */ }
     console.error(chalk.red('\n\u274c An unexpected error occurred. Check nightytidy-run.log for details.'));
     process.exit(1);
   });
@@ -330,6 +128,7 @@ export async function run() {
   process.on('SIGINT', () => {
     if (interrupted) {
       console.log('\nForce stopping.');
+      try { stopDashboard(); } catch { /* best effort cleanup */ }
       process.exit(1);
     }
     interrupted = true;

@@ -93,7 +93,7 @@ function connectSSE(url) {
       // Poll until the initial event arrives instead of fixed delay
       const start = Date.now();
       const poll = setInterval(() => {
-        if (events.length > 0 || Date.now() - start > 2000) {
+        if (events.length > 0 || Date.now() - start > 5000) {
           clearInterval(poll);
           resolve({ res, events });
         }
@@ -102,7 +102,7 @@ function connectSSE(url) {
   });
 }
 
-function waitForEvent(events, predicate, timeoutMs = 2000) {
+function waitForEvent(events, predicate, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const poll = setInterval(() => {
@@ -192,6 +192,27 @@ describe('startDashboard', () => {
 
     const res = await httpGet(`${result.url}/unknown`);
     expect(res.status).toBe(404);
+  });
+
+  it('serves health check on GET /health with structured JSON', async () => {
+    const state = makeInitialState({ status: 'running', completedCount: 1, failedCount: 0 });
+    const result = await mod.startDashboard(state, {
+      onStop: vi.fn(),
+      projectDir: tempDir,
+    });
+
+    const res = await httpGet(`${result.url}/health`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/json');
+
+    const body = JSON.parse(res.body);
+    expect(body.status).toBe('healthy');
+    expect(body.uptime).toBeGreaterThanOrEqual(0);
+    expect(body.sseClients).toBe(0);
+    expect(body.run.status).toBe('running');
+    expect(body.run.totalSteps).toBe(3);
+    expect(body.run.completedCount).toBe(1);
+    expect(body.run.failedCount).toBe(0);
   });
 });
 

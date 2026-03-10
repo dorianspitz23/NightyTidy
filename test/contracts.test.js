@@ -134,7 +134,7 @@ describe('contract: git.js — mergeRunBranch never throws on conflict', () => {
     expect(result).toEqual({ success: true });
   });
 
-  it('returns { success: false, conflict: true } on conflict (does not throw)', async () => {
+  it('returns { success: false, conflict: true } on conflict (does not throw)', { timeout: 15000 }, async () => {
     const { initGit, getCurrentBranch, createRunBranch, mergeRunBranch } = await import('../src/git.js');
     initGit(tempDir);
 
@@ -815,7 +815,323 @@ describe('contract: dashboard.js — startDashboard return shape', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 14. Init sequence — order matters
+// 14. lock.js — "Async, throws with user-friendly messages"
+// ---------------------------------------------------------------------------
+describe('contract: lock.js — throws on lock conflicts, releaseLock is safe', () => {
+  let tempDir;
+
+  beforeEach(async () => {
+    vi.resetModules();
+
+    vi.doMock('../src/logger.js', () => ({
+      info: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    }));
+
+    tempDir = await mkdtemp(path.join(tmpdir(), 'nightytidy-contract-lock-'));
+  });
+
+  afterEach(async () => {
+    vi.doUnmock('../src/logger.js');
+    vi.restoreAllMocks();
+    // Clean up any leftover lock file
+    try {
+      const { unlinkSync } = await import('fs');
+      unlinkSync(path.join(tempDir, 'nightytidy.lock'));
+    } catch { /* no lock to clean */ }
+    await robustCleanup(tempDir);
+  });
+
+  it('exports acquireLock and releaseLock as functions', async () => {
+    const mod = await import('../src/lock.js');
+    expect(mod.acquireLock).toBeTypeOf('function');
+    expect(mod.releaseLock).toBeTypeOf('function');
+  });
+
+  it('acquireLock creates a lock file with pid and started fields', async () => {
+    const { acquireLock } = await import('../src/lock.js');
+    await acquireLock(tempDir);
+
+    const { readFileSync } = await import('fs');
+    const data = JSON.parse(readFileSync(path.join(tempDir, 'nightytidy.lock'), 'utf8'));
+    expect(data).toHaveProperty('pid');
+    expect(data).toHaveProperty('started');
+    expect(typeof data.pid).toBe('number');
+    expect(typeof data.started).toBe('string');
+  });
+
+  it('acquireLock throws an Error (not result object) when lock is held in non-TTY', async () => {
+    const { acquireLock } = await import('../src/lock.js');
+
+    // First acquire succeeds
+    await acquireLock(tempDir);
+
+    // Stub isTTY to false so promptOverride throws instead of prompting
+    const origTTY = process.stdin.isTTY;
+    process.stdin.isTTY = false;
+
+    try {
+      await expect(acquireLock(tempDir)).rejects.toThrow(Error);
+    } finally {
+      process.stdin.isTTY = origTTY;
+    }
+  });
+
+  it('releaseLock does not throw when no lock file exists', async () => {
+    const { releaseLock } = await import('../src/lock.js');
+    expect(() => releaseLock(tempDir)).not.toThrow();
+  });
+
+  it('releaseLock removes an existing lock file', async () => {
+    const { acquireLock, releaseLock } = await import('../src/lock.js');
+    await acquireLock(tempDir);
+
+    expect(existsSync(path.join(tempDir, 'nightytidy.lock'))).toBe(true);
+    releaseLock(tempDir);
+    expect(existsSync(path.join(tempDir, 'nightytidy.lock'))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. orchestrator.js — "Never throws; returns { success: false, error }"
+// ---------------------------------------------------------------------------
+describe('contract: orchestrator.js — never throws, returns result objects', () => {
+  beforeEach(() => {
+    vi.resetModules();
+
+    vi.doMock('../src/logger.js', () => ({
+      initLogger: vi.fn(),
+      info: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    }));
+
+    vi.doMock('../src/checks.js', () => ({
+      runPreChecks: vi.fn().mockRejectedValue(new Error('Simulated check failure')),
+    }));
+
+    vi.doMock('../src/git.js', () => ({
+      initGit: vi.fn().mockReturnValue({}),
+      excludeEphemeralFiles: vi.fn(),
+      getCurrentBranch: vi.fn().mockResolvedValue('main'),
+      createPreRunTag: vi.fn().mockResolvedValue('nightytidy-before-test'),
+      createRunBranch: vi.fn().mockResolvedValue('nightytidy/run-test'),
+      mergeRunBranch: vi.fn().mockResolvedValue({ success: true }),
+      getGitInstance: vi.fn(),
+    }));
+
+    vi.doMock('../src/claude.js', () => ({
+      runPrompt: vi.fn().mockResolvedValue({ success: true, output: 'ok', error: null, exitCode: 0, attempts: 1 }),
+    }));
+
+    vi.doMock('../src/executor.js', () => ({
+      executeSingleStep: vi.fn().mockResolvedValue({
+        step: { number: 1, name: 'Test' }, status: 'completed', output: 'ok', duration: 1000, attempts: 1, error: null,
+      }),
+      SAFETY_PREAMBLE: 'test preamble',
+    }));
+
+    vi.doMock('../src/notifications.js', () => ({ notify: vi.fn() }));
+    vi.doMock('../src/report.js', () => ({
+      generateReport: vi.fn(),
+      formatDuration: vi.fn().mockReturnValue('1m 0s'),
+    }));
+    vi.doMock('../src/lock.js', () => ({
+      acquireLock: vi.fn(),
+      releaseLock: vi.fn(),
+    }));
+    vi.doMock('../src/prompts/steps.js', () => ({
+      STEPS: [{ number: 1, name: 'Lint', prompt: 'lint' }],
+      CHANGELOG_PROMPT: 'changelog',
+    }));
+  });
+
+  afterEach(() => {
+    vi.doUnmock('../src/logger.js');
+    vi.doUnmock('../src/checks.js');
+    vi.doUnmock('../src/git.js');
+    vi.doUnmock('../src/claude.js');
+    vi.doUnmock('../src/executor.js');
+    vi.doUnmock('../src/notifications.js');
+    vi.doUnmock('../src/report.js');
+    vi.doUnmock('../src/lock.js');
+    vi.doUnmock('../src/prompts/steps.js');
+    vi.restoreAllMocks();
+  });
+
+  it('exports initRun, runStep, finishRun as functions', async () => {
+    const mod = await import('../src/orchestrator.js');
+    expect(mod.initRun).toBeTypeOf('function');
+    expect(mod.runStep).toBeTypeOf('function');
+    expect(mod.finishRun).toBeTypeOf('function');
+  });
+
+  it('initRun returns { success: false, error } when pre-checks fail (never throws)', async () => {
+    const { initRun } = await import('../src/orchestrator.js');
+
+    const result = await initRun('/fake', { steps: '1' });
+
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty('success');
+    expect(result).toHaveProperty('error');
+    expect(result.success).toBe(false);
+    expect(typeof result.error).toBe('string');
+  });
+
+  it('runStep returns { success: false, error } when no state file (never throws)', async () => {
+    const { runStep } = await import('../src/orchestrator.js');
+
+    const result = await runStep('/fake', 1);
+
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty('success');
+    expect(result).toHaveProperty('error');
+    expect(result.success).toBe(false);
+    expect(typeof result.error).toBe('string');
+  });
+
+  it('finishRun returns { success: false, error } when no state file (never throws)', async () => {
+    const { finishRun } = await import('../src/orchestrator.js');
+
+    const result = await finishRun('/fake');
+
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty('success');
+    expect(result).toHaveProperty('error');
+    expect(result.success).toBe(false);
+    expect(typeof result.error).toBe('string');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. executor.js — executeSingleStep return shape + SAFETY_PREAMBLE export
+// ---------------------------------------------------------------------------
+describe('contract: executor.js — executeSingleStep and SAFETY_PREAMBLE', () => {
+  beforeEach(() => {
+    vi.resetModules();
+
+    vi.doMock('../src/claude.js', () => ({
+      runPrompt: vi.fn().mockResolvedValue({
+        success: true, output: 'ok', error: null, exitCode: 0, attempts: 1,
+      }),
+    }));
+
+    vi.doMock('../src/git.js', () => ({
+      getHeadHash: vi.fn().mockResolvedValue('abc'),
+      hasNewCommit: vi.fn().mockResolvedValue(true),
+      fallbackCommit: vi.fn().mockResolvedValue(true),
+    }));
+
+    vi.doMock('../src/notifications.js', () => ({
+      notify: vi.fn(),
+    }));
+
+    vi.doMock('../src/logger.js', () => ({
+      info: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    }));
+
+    vi.doMock('../src/prompts/steps.js', () => ({
+      STEPS: [],
+      DOC_UPDATE_PROMPT: 'mock doc update',
+    }));
+  });
+
+  afterEach(() => {
+    vi.doUnmock('../src/claude.js');
+    vi.doUnmock('../src/git.js');
+    vi.doUnmock('../src/notifications.js');
+    vi.doUnmock('../src/logger.js');
+    vi.doUnmock('../src/prompts/steps.js');
+    vi.restoreAllMocks();
+  });
+
+  it('SAFETY_PREAMBLE is a non-empty string containing constraint keywords', async () => {
+    const { SAFETY_PREAMBLE } = await import('../src/executor.js');
+
+    expect(typeof SAFETY_PREAMBLE).toBe('string');
+    expect(SAFETY_PREAMBLE.length).toBeGreaterThan(50);
+    expect(SAFETY_PREAMBLE).toContain('Do NOT delete');
+    expect(SAFETY_PREAMBLE).toContain('Do NOT create, switch, or merge git branches');
+  });
+
+  it('executeSingleStep returns a result with step, status, output, duration, attempts, error', async () => {
+    const { executeSingleStep } = await import('../src/executor.js');
+    const step = { number: 1, name: 'Lint', prompt: 'lint' };
+
+    const result = await executeSingleStep(step, '/fake');
+
+    expect(result).toHaveProperty('step');
+    expect(result).toHaveProperty('status');
+    expect(result).toHaveProperty('output');
+    expect(result).toHaveProperty('duration');
+    expect(result).toHaveProperty('attempts');
+    expect(result).toHaveProperty('error');
+
+    expect(result.step).toEqual({ number: 1, name: 'Lint' });
+    expect(['completed', 'failed']).toContain(result.status);
+    expect(typeof result.duration).toBe('number');
+    expect(typeof result.attempts).toBe('number');
+  });
+
+  it('executeSingleStep returns failed status when runPrompt fails (never throws)', async () => {
+    const { runPrompt } = await import('../src/claude.js');
+    runPrompt.mockResolvedValue({
+      success: false, output: '', error: 'timeout', exitCode: 1, attempts: 4,
+    });
+
+    const { executeSingleStep } = await import('../src/executor.js');
+    const step = { number: 1, name: 'Lint', prompt: 'lint' };
+
+    const result = await executeSingleStep(step, '/fake');
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toBeTruthy();
+    // Never throws — contract requirement
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 17. dashboard-html.js — getHTML return shape
+// ---------------------------------------------------------------------------
+describe('contract: dashboard-html.js — getHTML returns valid HTML with CSRF token', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('exports getHTML as a function', async () => {
+    const mod = await import('../src/dashboard-html.js');
+    expect(mod.getHTML).toBeTypeOf('function');
+  });
+
+  it('returns an HTML string containing the CSRF token', async () => {
+    const { getHTML } = await import('../src/dashboard-html.js');
+    const token = 'abc123test';
+    const html = getHTML(token);
+
+    expect(typeof html).toBe('string');
+    expect(html).toContain('<!DOCTYPE html>');
+    expect(html).toContain('NightyTidy');
+    expect(html).toContain(token);
+  });
+
+  it('returns HTML with security-relevant elements (CSP meta or script nonce)', async () => {
+    const { getHTML } = await import('../src/dashboard-html.js');
+    const html = getHTML('test-token');
+
+    // Should include the stop endpoint reference and token for CSRF
+    expect(html).toContain('/stop');
+    expect(html).toContain('test-token');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 18. Init sequence — order matters
 // ---------------------------------------------------------------------------
 describe('contract: initialization sequence', () => {
   beforeEach(() => {

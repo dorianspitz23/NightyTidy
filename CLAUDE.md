@@ -18,9 +18,9 @@ Automated overnight codebase improvement through Claude Code. NightyTidy is an o
 | Layer | Technology | Version |
 |-------|-----------|---------|
 | Runtime | Node.js (ESM) | >=20.12.0 |
-| CLI Framework | Commander | v12 |
+| CLI Framework | Commander | v14 |
 | Interactive UI | @inquirer/checkbox | v5 |
-| Terminal UX | ora (spinners), chalk (colors) | v8, v5 |
+| Terminal UX | ora (spinners), chalk (colors) | v9, v5 |
 | Git | simple-git | v3 |
 | AI Engine | Claude Code CLI (subprocess) | latest |
 | Notifications | node-notifier | v10 |
@@ -52,8 +52,8 @@ src/
 test/
   smoke.test.js            # 6 tests — structural integrity, module imports, deploy verification
   cli.test.js              # 27 tests — full lifecycle orchestration, SIGINT handling, --setup, dashboard
-  dashboard.test.js        # 15 tests — HTTP server start/stop, SSE events, CSRF, stop callback
-  logger.test.js           # 10 tests — real file I/O, level filtering, stderr fallback
+  dashboard.test.js        # 16 tests — HTTP server start/stop, SSE events, CSRF, stop callback, health check
+  logger.test.js           # 12 tests — real file I/O, level filtering, stderr fallback, run correlation ID
   checks.test.js           # 4 tests — mock subprocess, mock git
   checks-extended.test.js  # 13 tests — auth paths, disk space, branch warnings, empty repo
   claude.test.js           # 21 tests — fake child process, fake timers, abort signal, Windows shell mode
@@ -71,7 +71,25 @@ test/
   dashboard-extended.test.js # 3 tests — scheduleShutdown timer behavior
   integration-extended.test.js # 6 tests — setup + executor + git cross-module integration
   orchestrator.test.js     # 31 tests — initRun, runStep, finishRun, dashboard integration with mocked modules
-  contracts.test.js        # 31 tests — module API contract verification against CLAUDE.md
+  contracts.test.js        # 46 tests — module API contract verification against CLAUDE.md
+  dashboard-standalone.test.js # 11 tests — standalone dashboard HTTP server integration, health check
+  dashboard-security.test.js # 7 tests — security headers, CSRF token validation
+  dashboard-error-paths.test.js # 5 tests — error recovery, SSE client failure handling
+  dashboard-tui-extended.test.js # 10 tests — TUI render edge cases
+  dashboard-tui-polling.test.js # 8 tests — TUI polling, elapsed time display
+  checks-timeout.test.js   # 8 tests — timeout, disk space edge cases
+  claude-spawn-error.test.js # 4 tests — spawn error paths, retry with fake timers
+  executor-extended.test.js # 7 tests — fallback commit, doc update flow
+  executor-integrity.test.js # 2 tests — prompt integrity hash verification
+  git-retry.test.js        # 7 tests — tag/branch retry loops
+  git-merge-abort.test.js  # 6 tests — merge conflict abort handling
+  lock.test.js             # 14 tests — atomic lock, stale detection
+  lock-extended.test.js    # 7 tests — persistent mode, edge cases
+  lock-interactive.test.js # 5 tests — TTY override prompt
+  lock-race-condition.test.js # 4 tests — concurrent lock races
+  orchestrator-error-paths.test.js # 10 tests — orchestrator error recovery
+  orchestrator-integration.test.js # 6 tests — real state file operations
+  orchestrator-lifecycle.test.js # 5 tests — full lifecycle integration
   helpers/
     cleanup.js             # Shared temp directory cleanup with EBUSY retry for Windows
     mocks.js               # Shared mock factories: createMockProcess, createErrorProcess, createMockGit
@@ -80,6 +98,9 @@ scripts/
   check-docs-freshness.js  # CI check: verifies doc counts match code reality
   run-flaky-check.js       # Runs test suite N times (default 3) to detect flaky tests
 vitest.config.js           # Coverage thresholds + strip-shebang Vite plugin (Windows CRLF fix)
+docs/
+  ERROR_MESSAGES.md        # Error message style guide + reference for all user-facing messages
+  RUNBOOKS.md              # Operational runbooks for 13 common failure modes
 00_README.md .. 14_*.md    # PRD decomposition docs (reference only — not loaded by AI)
 .github/
   workflows/
@@ -92,18 +113,19 @@ vitest.config.js           # Coverage thresholds + strip-shebang Vite plugin (Wi
 |------|---------------|-------------|
 | `bin/nightytidy.js` | Entry point — calls `run()` | cli |
 | `src/cli.js` | Commander + Inquirer + full lifecycle | all modules |
+| `src/cli-ui.js` | Interactive step selection + progress display callbacks | logger, prompts, notifications, report, dashboard |
 | `src/executor.js` | Core step loop + single-step execution, prompt integrity check | crypto, claude, git, notifications, prompts |
 | `src/orchestrator.js` | Claude Code orchestrator mode (JSON API for step-by-step runs) + dashboard | logger, checks, git, claude, executor, lock, report, notifications, prompts, dashboard-standalone |
 | `src/claude.js` | Claude Code subprocess (spawn, retry, timeout, session continue) | logger |
 | `src/git.js` | Git operations via simple-git | logger |
 | `src/checks.js` | Pre-run validation (6 checks) | logger |
 | `src/notifications.js` | Desktop notifications | logger |
-| `src/dashboard.js` | Progress file + TUI window spawner + HTTP server (CSRF, security headers) | crypto, logger, dashboard-html |
+| `src/dashboard.js` | Progress file + TUI window spawner + HTTP server (CSRF, security headers, health check) | crypto, logger, dashboard-html |
 | `src/dashboard-html.js` | Dashboard HTML template (CSS + client-side JS) | none (data only) |
 | `src/dashboard-standalone.js` | Standalone dashboard server for orchestrator mode (polls progress JSON, serves HTML+SSE) | dashboard-html (standalone script) |
 | `src/dashboard-tui.js` | Standalone TUI progress display (reads progress JSON, renders with chalk) | chalk (standalone script) |
 | `src/lock.js` | Atomic lock file — prevents concurrent runs (async, TTY override prompt) | readline, logger |
-| `src/logger.js` | File + stdout logger (universal dep) | none |
+| `src/logger.js` | File + stdout logger (universal dep) + run correlation ID | crypto |
 | `src/report.js` | Report generation + CLAUDE.md update + `getVersion()` | logger |
 | `src/setup.js` | `--setup` command: CLAUDE.md integration for target projects | logger, prompts/steps |
 | `src/prompts/steps.js` | 28 prompts + doc update + changelog | none (data only) |
@@ -281,7 +303,7 @@ Each command is a separate process invocation. State persists via `nightytidy-ru
 ## Testing
 
 - **Framework**: Vitest v2, `vitest.config.js` for coverage thresholds + strip-shebang plugin
-- **Tests** across 22 files — `npm test` to run, `npm run test:ci` for coverage enforcement
+- **Tests** across 40 files — `npm test` to run, `npm run test:ci` for coverage enforcement
 - **Coverage thresholds**: 90% statements, 80% branches, 80% functions — enforced by `test:ci`
 - **Philosophy**: Mock Claude Code subprocess, use real git against temp directories. Test failure paths harder than success paths
 - **Universal mock**: All test files mock `../src/logger.js` to prevent file I/O during tests (exception: `logger.test.js` tests the real logger)
@@ -324,5 +346,10 @@ When you learn something worth preserving, put it in the right place:
 | `claude-integration.md` | Changing Claude Code subprocess handling |
 | `executor-loop.md` | Modifying step execution or doc-update flow |
 | `dashboard.md` | Changing progress display (HTTP, TUI, SSE) |
+| `orchestrator.md` | Changing orchestrator mode (JSON API, state file, dashboard) |
 | `report-generation.md` | Changing report format or CLAUDE.md auto-update |
 | `pitfalls.md` | Debugging platform-specific or subprocess issues |
+
+## NightyTidy — Last Run
+
+Last run: 2026-03-10. To undo, reset to git tag `nightytidy-before-2026-03-10-1419`.

@@ -22,17 +22,17 @@ function isProcessAlive(pid) {
 }
 
 function isLockStale(lockData) {
-  // Process is dead — definitely stale
-  if (!lockData.pid || !isProcessAlive(lockData.pid)) return true;
+  // Process is dead — definitely stale.
+  // Use explicit null/undefined check instead of `!lockData.pid` to avoid
+  // treating PID 0 (Windows System process) as falsy/dead.
+  if (lockData.pid == null || !isProcessAlive(lockData.pid)) return true;
 
   // Lock is older than 24 hours — treat as stale regardless of PID
   // (handles PID recycling on Windows where process.kill(pid,0) is unreliable)
-  if (lockData.started) {
-    const age = Date.now() - new Date(lockData.started).getTime();
-    if (age > MAX_LOCK_AGE_MS) return true;
-  }
-
-  return false;
+  const age = lockData.started ? Date.now() - new Date(lockData.started).getTime() : 0;
+  // Invalid/corrupt timestamp parses to NaN — treat as stale rather than blocking future runs
+  if (Number.isNaN(age)) return true;
+  return age > MAX_LOCK_AGE_MS;
 }
 
 function promptOverride(lockData) {
@@ -56,7 +56,12 @@ function promptOverride(lockData) {
 }
 
 function removeLockAndReacquire(lockPath, lockContent) {
-  unlinkSync(lockPath);
+  try {
+    unlinkSync(lockPath);
+  } catch (unlinkErr) {
+    // Lock file already removed (e.g., original holder exited during prompt) — safe to proceed
+    if (unlinkErr.code !== 'ENOENT') throw unlinkErr;
+  }
   warn('Removed stale lock file from a previous run');
   try {
     writeLockFile(lockPath, lockContent);
@@ -71,11 +76,22 @@ function removeLockAndReacquire(lockPath, lockContent) {
   }
 }
 
+/**
+ * Remove the lock file. Safe to call when no lock exists.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ */
 export function releaseLock(projectDir) {
   const lockPath = path.join(projectDir, LOCK_FILENAME);
   try { unlinkSync(lockPath); } catch { /* already gone */ }
 }
 
+/**
+ * Acquire an atomic lock file to prevent concurrent runs.
+ * Throws if the lock is held by another active process and the user declines override.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @param {{ persistent?: boolean }} [opts] - Options. `persistent` skips auto-remove on process exit (for orchestrator mode).
+ * @returns {Promise<void>}
+ */
 export async function acquireLock(projectDir, { persistent = false } = {}) {
   const lockPath = path.join(projectDir, LOCK_FILENAME);
   const lockContent = JSON.stringify({ pid: process.pid, started: new Date().toISOString() });

@@ -4,6 +4,10 @@ import { info, warn } from './logger.js';
 
 let cachedVersion;
 
+/**
+ * Get the NightyTidy version from package.json. Falls back to '0.1.0'.
+ * @returns {string} Semver version string.
+ */
 export function getVersion() {
   if (cachedVersion) return cachedVersion;
   try {
@@ -15,7 +19,13 @@ export function getVersion() {
   return cachedVersion;
 }
 
+/**
+ * Format a duration in milliseconds to a human-readable string (e.g. "2h 15m" or "3m 42s").
+ * @param {number} ms - Duration in milliseconds.
+ * @returns {string} Formatted duration.
+ */
 export function formatDuration(ms) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '0m 00s';
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
@@ -98,31 +108,41 @@ function buildUndoSection(metadata) {
   );
 }
 
+/**
+ * Generate NIGHTYTIDY-REPORT.md and update CLAUDE.md with run info. Warns but never throws.
+ * @param {{ results: Array<{ step: { number: number, name: string }, status: string, duration: number, attempts: number, error: string | null }>, completedCount: number, failedCount: number }} results - Execution results.
+ * @param {string | null} narration - Narrated changelog text, or null for fallback.
+ * @param {{ projectDir: string, branchName: string, tagName: string, originalBranch: string, startTime: number, endTime: number }} metadata - Run metadata.
+ */
 export function generateReport(results, narration, metadata) {
-  const date = formatDate(metadata.startTime);
+  try {
+    const date = formatDate(metadata.startTime);
 
-  let report = `# NightyTidy Report \u2014 ${date}\n\n`;
+    let report = `# NightyTidy Report \u2014 ${date}\n\n`;
 
-  if (narration) {
-    report += `${narration}\n\n---\n\n`;
-  } else {
-    report += `${fallbackNarration(results)}\n\n---\n\n`;
+    if (narration) {
+      report += `${narration}\n\n---\n\n`;
+    } else {
+      report += `${fallbackNarration(results)}\n\n---\n\n`;
+    }
+
+    report += buildSummarySection(results, metadata);
+    report += buildStepTable(results);
+
+    if (results.failedCount > 0) {
+      report += buildFailedSection(results);
+    }
+
+    report += buildUndoSection(metadata);
+
+    const reportPath = path.join(metadata.projectDir, 'NIGHTYTIDY-REPORT.md');
+    writeFileSync(reportPath, report, 'utf8');
+    info(`Report written to ${reportPath}`);
+  } catch (err) {
+    warn(`Failed to write report: ${err.message}`);
   }
 
-  report += buildSummarySection(results, metadata);
-  report += buildStepTable(results);
-
-  if (results.failedCount > 0) {
-    report += buildFailedSection(results);
-  }
-
-  report += buildUndoSection(metadata);
-
-  const reportPath = path.join(metadata.projectDir, 'NIGHTYTIDY-REPORT.md');
-  writeFileSync(reportPath, report, 'utf8');
-  info(`Report written to ${reportPath}`);
-
-  // Update CLAUDE.md
+  // Update CLAUDE.md (has its own try/catch)
   updateClaudeMd(metadata);
 }
 

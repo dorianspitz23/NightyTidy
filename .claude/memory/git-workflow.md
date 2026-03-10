@@ -1,6 +1,6 @@
 # Git Workflow — Tier 2 Reference
 
-Assumes CLAUDE.md loaded. All git ops in `src/git.js` (143 lines) via `simple-git`.
+Assumes CLAUDE.md loaded. All git ops in `src/git.js` (144 lines) via `simple-git`.
 
 ## Module State
 
@@ -12,7 +12,7 @@ Assumes CLAUDE.md loaded. All git ops in `src/git.js` (143 lines) via `simple-gi
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `EPHEMERAL_FILES` | `['nightytidy-run.log', 'nightytidy-progress.json', 'nightytidy-dashboard.url']` | Excluded from git tracking |
+| `EPHEMERAL_FILES` | `['nightytidy-run.log', 'nightytidy-progress.json', 'nightytidy-dashboard.url', 'nightytidy-run-state.json']` | Excluded from git tracking |
 | `RETRY_LIMIT` | 10 | Max collision retry attempts for tags/branches |
 
 ## Ephemeral File Exclusion

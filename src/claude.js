@@ -20,10 +20,12 @@ function timeoutMessage(ms) {
   return `Claude Code timed out after ${minutes} minutes`;
 }
 
-// Remove CLAUDECODE env var so subprocess doesn't refuse to start
-// when NightyTidy is invoked from within a Claude Code session.
-// Safe because NightyTidy only uses non-interactive `claude -p` calls.
-function cleanEnv() {
+/**
+ * Return a copy of `process.env` with `CLAUDECODE` removed so subprocess doesn't
+ * refuse to start when NightyTidy is invoked from within a Claude Code session.
+ * @returns {Record<string, string | undefined>} Cleaned environment variables.
+ */
+export function cleanEnv() {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   return env;
@@ -70,15 +72,19 @@ function spawnClaude(prompt, cwd, useShell = false, continueSession = false) {
 
 function waitForChild(child, timeoutMs, { verbose = true, signal } = {}) {
   return new Promise((resolve) => {
-    let stdout = '';
+    // Accumulate chunks in an array and join once at the end to avoid
+    // O(n) string copies on every data event.
+    const stdoutChunks = [];
     let settled = false;
+
+    const getOutput = () => stdoutChunks.join('');
 
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       signal?.removeEventListener('abort', onAbort);
       if (verbose) forceKillChild(child); else child.kill();
-      resolve({ success: false, output: stdout, error: timeoutMessage(timeoutMs), exitCode: -1 });
+      resolve({ success: false, output: getOutput(), error: timeoutMessage(timeoutMs), exitCode: -1 });
     }, timeoutMs);
 
     // Kill child when abort signal fires
@@ -87,14 +93,14 @@ function waitForChild(child, timeoutMs, { verbose = true, signal } = {}) {
       settled = true;
       clearTimeout(timer);
       forceKillChild(child);
-      resolve({ success: false, output: stdout, error: 'Aborted by user', exitCode: -1 });
+      resolve({ success: false, output: getOutput(), error: 'Aborted by user', exitCode: -1 });
     };
     if (signal?.aborted) { onAbort(); return; }
     signal?.addEventListener('abort', onAbort, { once: true });
 
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString();
-      stdout += text;
+      stdoutChunks.push(text);
       if (verbose) debug(text.trimEnd());
     });
 
@@ -116,6 +122,7 @@ function waitForChild(child, timeoutMs, { verbose = true, signal } = {}) {
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
+      const stdout = getOutput();
       const ok = code === 0 && stdout.trim().length > 0;
       resolve({
         success: ok,
@@ -147,6 +154,13 @@ async function runOnce(prompt, cwd, timeoutMs, signal, continueSession = false) 
   return result;
 }
 
+/**
+ * Run a prompt through Claude Code with retries. Never throws — returns a result object.
+ * @param {string} prompt - The prompt text to send to Claude Code.
+ * @param {string} cwd - Working directory for the Claude Code subprocess.
+ * @param {{ timeout?: number, retries?: number, label?: string, signal?: AbortSignal, continueSession?: boolean }} [options]
+ * @returns {Promise<{ success: boolean, output: string, error: string | null, exitCode: number, duration: number, attempts: number }>}
+ */
 export async function runPrompt(prompt, cwd, options = {}) {
   const timeoutMs = options.timeout ?? DEFAULT_TIMEOUT;
   const maxRetries = options.retries ?? DEFAULT_RETRIES;
@@ -182,8 +196,11 @@ export async function runPrompt(prompt, cwd, options = {}) {
     warn(`Claude Code failed: ${label} — ${result.error} (attempt ${attempt}/${totalAttempts})`);
 
     if (attempt < totalAttempts) {
-      warn(`Retrying ${label} in 10s (attempt ${attempt + 1}/${totalAttempts})`);
-      await sleep(RETRY_DELAY, signal);
+      // Add jitter (0-50% of base delay) to prevent synchronized retries
+      const jitter = Math.round(Math.random() * RETRY_DELAY * 0.5);
+      const delay = RETRY_DELAY + jitter;
+      warn(`Retrying ${label} in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}/${totalAttempts})`);
+      await sleep(delay, signal);
     }
   }
 
