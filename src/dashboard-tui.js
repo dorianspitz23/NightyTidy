@@ -36,6 +36,7 @@ function readState() {
  * @returns {string} Formatted duration.
  */
 export function formatMs(ms) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '0s';
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -52,8 +53,10 @@ export function formatMs(ms) {
  * @returns {string} Formatted progress bar string (with ANSI colors).
  */
 export function progressBar(done, total, hasActive = false) {
-  const effective = hasActive ? done + 0.5 : done;
-  const pct = total > 0 ? effective / total : 0;
+  const safeDone = typeof done === 'number' && Number.isFinite(done) ? done : 0;
+  const safeTotal = typeof total === 'number' && Number.isFinite(total) ? total : 0;
+  const effective = hasActive ? safeDone + 0.5 : safeDone;
+  const pct = safeTotal > 0 ? effective / safeTotal : 0;
   const filled = Math.round(pct * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
   const bar = chalk.cyan('\u2588'.repeat(filled)) + chalk.dim('\u2591'.repeat(empty));

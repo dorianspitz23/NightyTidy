@@ -78,6 +78,10 @@ export async function run() {
     console.error(chalk.red(`--timeout must be a positive number of minutes (got "${opts.timeout}")`));
     process.exit(1);
   }
+  if (opts.timeout !== undefined && opts.timeout > 1440) {
+    console.error(chalk.red('--timeout cannot exceed 1440 minutes (24 hours). A step taking longer than that likely has an issue.'));
+    process.exit(1);
+  }
 
   // Orchestrator commands — output JSON and exit
   if (opts.list && opts.json) {

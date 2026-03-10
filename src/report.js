@@ -25,6 +25,7 @@ export function getVersion() {
  * @returns {string} Formatted duration.
  */
 export function formatDuration(ms) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '0m 00s';
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);

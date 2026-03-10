@@ -30,6 +30,8 @@ function isLockStale(lockData) {
   // Lock is older than 24 hours — treat as stale regardless of PID
   // (handles PID recycling on Windows where process.kill(pid,0) is unreliable)
   const age = lockData.started ? Date.now() - new Date(lockData.started).getTime() : 0;
+  // Invalid/corrupt timestamp parses to NaN — treat as stale rather than blocking future runs
+  if (Number.isNaN(age)) return true;
   return age > MAX_LOCK_AGE_MS;
 }
 

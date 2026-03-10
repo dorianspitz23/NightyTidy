@@ -108,8 +108,10 @@ server.listen(0, '127.0.0.1', () => {
   // Write port to stdout so the spawning process can capture it
   process.stdout.write(JSON.stringify({ port, url, pid: process.pid }) + '\n');
 
-  setInterval(pollProgress, POLL_INTERVAL);
+  pollTimer = setInterval(pollProgress, POLL_INTERVAL);
 });
+
+let pollTimer = null;
 
 server.on('error', (err) => {
   process.stderr.write(`Dashboard server error: ${err.message}\n`);
@@ -118,7 +120,7 @@ server.on('error', (err) => {
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  clearInterval(pollProgress);
+  if (pollTimer) clearInterval(pollTimer);
   for (const client of sseClients) { try { client.end(); } catch { /* ignore */ } }
   server.close(() => process.exit(0));
 });

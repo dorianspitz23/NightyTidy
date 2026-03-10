@@ -30,6 +30,9 @@ function readState(projectDir) {
   try {
     const data = JSON.parse(readFileSync(fp, 'utf8'));
     if (data.version !== STATE_VERSION) return null;
+    // Validate required fields to guard against corrupt or hand-edited state files
+    if (!Array.isArray(data.selectedSteps) || !Array.isArray(data.completedSteps) || !Array.isArray(data.failedSteps)) return null;
+    if (typeof data.startTime !== 'number' || typeof data.runBranch !== 'string' || typeof data.originalBranch !== 'string') return null;
     return data;
   } catch {
     return null;
@@ -143,6 +146,8 @@ function spawnDashboardServer(projectDir) {
 
       child.on('error', () => {
         clearTimeout(timer);
+        child.stdout.removeAllListeners();
+        child.unref();
         resolve(null);
       });
     });
@@ -184,7 +189,8 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
     // Validate and select steps
     let selectedNums;
     if (steps) {
-      const nums = steps.split(',').map(s => parseInt(s.trim(), 10));
+      const nums = steps.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n));
+      if (nums.length === 0) return fail('No valid step numbers provided. Use comma-separated numbers, e.g. --steps 1,5,12.');
       const err = validateStepNumbers(nums);
       if (err) return err;
       selectedNums = nums;

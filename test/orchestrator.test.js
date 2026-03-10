@@ -166,7 +166,7 @@ describe('initRun', () => {
 
   it('fails when state file already exists', async () => {
     existsSync.mockReturnValue(true);
-    readFileSync.mockReturnValue(JSON.stringify({ version: 1 }));
+    readFileSync.mockReturnValue(JSON.stringify({ version: 1, selectedSteps: [1], completedSteps: [], failedSteps: [], startTime: Date.now(), runBranch: 'nightytidy/run-test', originalBranch: 'main' }));
 
     const result = await initRun('/fake/project', {});
 
