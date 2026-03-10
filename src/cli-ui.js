@@ -206,13 +206,9 @@ export function printStepList() {
   const numWidth = String(STEPS.length).length;
   for (const step of STEPS) {
     const num = String(step.number).padStart(numWidth);
+    console.log(`  ${num}. ${step.name}`);
     const desc = extractStepDescription(step.prompt);
-    if (desc) {
-      console.log(`  ${num}. ${step.name}`);
-      console.log(chalk.dim(`      ${desc}`));
-    } else {
-      console.log(`  ${num}. ${step.name}`);
-    }
+    if (desc) console.log(chalk.dim(`      ${desc}`));
   }
   console.log(chalk.dim(`\nUse --steps 1,5,12 to run specific steps, or --all to run everything.`));
 }
