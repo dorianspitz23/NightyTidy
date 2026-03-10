@@ -235,17 +235,36 @@ async function checkExistingBranches(git) {
 /**
  * Run all pre-flight checks. Throws with user-friendly messages on failure.
  * Checks: git installed, git repo, has commits, Claude CLI installed, Claude authenticated, disk space, existing branches.
+ *
+ * Independent check chains run in parallel for faster startup:
+ *   - Git chain: installed → repo → commits → branches
+ *   - Claude chain: installed → authenticated
+ *   - Disk space (fully independent)
+ * Errors are reported in priority order: git → claude → disk.
+ *
  * @param {string} projectDir - Absolute path to the target project directory.
  * @param {import('simple-git').SimpleGit} git - Initialized simple-git instance.
  * @returns {Promise<void>}
  */
 export async function runPreChecks(projectDir, git) {
-  await checkGitInstalled();
-  await checkGitRepo(git);
-  await checkHasCommits(git);
-  await checkClaudeInstalled();
-  await checkClaudeAuthenticated();
-  await checkDiskSpace(projectDir);
-  await checkExistingBranches(git);
+  const [gitResult, claudeResult, diskResult] = await Promise.allSettled([
+    (async () => {
+      await checkGitInstalled();
+      await checkGitRepo(git);
+      await checkHasCommits(git);
+      await checkExistingBranches(git);
+    })(),
+    (async () => {
+      await checkClaudeInstalled();
+      await checkClaudeAuthenticated();
+    })(),
+    checkDiskSpace(projectDir),
+  ]);
+
+  // Report first error in priority order: git → claude → disk
+  if (gitResult.status === 'rejected') throw gitResult.reason;
+  if (claudeResult.status === 'rejected') throw claudeResult.reason;
+  if (diskResult.status === 'rejected') throw diskResult.reason;
+
   info('All pre-run checks passed');
 }

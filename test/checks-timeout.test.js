@@ -44,12 +44,83 @@ describe('checks.js — timeout and error paths', () => {
     };
   }
 
-  // Standard 4-spawn setup: git, claude --version, claude auth, disk space
-  function setupStandardSpawns(diskOutput = '10737418240') {
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'git version 2.40.0' }));
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'claude 1.0.0' }));
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'OK' }));
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: diskOutput }));
+  // Command-based dispatch for parallel-safe spawn mocking.
+  // Pre-checks run git/claude/disk chains in parallel, so spawn order
+  // is non-deterministic. Dispatch by command name instead of call order.
+  function setupSpawnDispatch({ diskOutput = '10737418240', diskError = false, diskUnparseable = false, claudeAuthFail = false, claudeAuthHang = false, claudeAuthFallbackOk = false, claudeAuthFallbackFail = false } = {}) {
+    let claudeAuthCallCount = 0;
+
+    spawn.mockImplementation((cmd, args) => {
+      if (cmd === 'git') {
+        return makeFakeChild({ stdout: 'git version 2.40.0' });
+      }
+      if (cmd === 'claude' && args?.includes('--version')) {
+        return makeFakeChild({ stdout: 'claude 1.0.0' });
+      }
+      if (cmd === 'claude' && args?.includes('-p')) {
+        claudeAuthCallCount++;
+
+        if (claudeAuthHang && claudeAuthCallCount === 1) {
+          // Never-completing child for timeout test
+          const child = new EventEmitter();
+          child.stdout = new EventEmitter();
+          child.stderr = new EventEmitter();
+          child.kill = vi.fn();
+          return child;
+        }
+
+        if (claudeAuthFail) {
+          return makeFakeChild({ stdout: '', exitCode: 1 });
+        }
+
+        // Silent auth fails, then interactive auth succeeds
+        if (claudeAuthFallbackOk) {
+          if (claudeAuthCallCount === 1) return makeFakeChild({ stdout: '', exitCode: 1 });
+          return makeFakeChild({ exitCode: 0 });
+        }
+
+        // Silent auth fails, then interactive auth also fails
+        if (claudeAuthFallbackFail) {
+          if (claudeAuthCallCount === 1) return makeFakeChild({ stdout: '', exitCode: 1 });
+          return makeFakeChild({ exitCode: 1 });
+        }
+
+        return makeFakeChild({ stdout: 'OK' });
+      }
+      // Disk space commands
+      if (cmd === 'powershell') {
+        if (diskError) {
+          const child = new EventEmitter();
+          child.stdout = new EventEmitter();
+          child.stderr = new EventEmitter();
+          child.kill = vi.fn();
+          Promise.resolve().then(() => child.emit('error', new Error('ENOENT')));
+          return child;
+        }
+        if (diskUnparseable) {
+          return makeFakeChild({ stdout: 'Error: no such drive', exitCode: 1 });
+        }
+        return makeFakeChild({ stdout: diskOutput });
+      }
+      if (cmd === 'wmic') {
+        if (diskUnparseable) {
+          return makeFakeChild({ stdout: 'FreeSpace\nNotANumber' });
+        }
+        return makeFakeChild({ stdout: `FreeSpace\n${diskOutput}\n` });
+      }
+      if (cmd === 'df') {
+        if (diskError) {
+          const child = new EventEmitter();
+          child.stdout = new EventEmitter();
+          child.stderr = new EventEmitter();
+          child.kill = vi.fn();
+          Promise.resolve().then(() => child.emit('error', new Error('ENOENT')));
+          return child;
+        }
+        return makeFakeChild({ stdout: 'Filesystem 1K-blocks Used Available\n/dev/sda1 100000000 50000000 50000000' });
+      }
+      return makeFakeChild({ stdout: 'ok' });
+    });
   }
 
   beforeEach(async () => {
@@ -76,16 +147,7 @@ describe('checks.js — timeout and error paths', () => {
     try {
       const { runPreChecks } = await import('../src/checks.js');
 
-      spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'git version 2.40.0' }));
-      spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'claude 1.0.0' }));
-      // Auth check — never completes (hangs until timeout)
-      spawn.mockImplementationOnce(() => {
-        const child = new EventEmitter();
-        child.stdout = new EventEmitter();
-        child.stderr = new EventEmitter();
-        child.kill = vi.fn();
-        return child;
-      });
+      setupSpawnDispatch({ claudeAuthHang: true });
 
       const p = runPreChecks('/fake', makeMockGit());
       await vi.advanceTimersByTimeAsync(31000);
@@ -100,7 +162,7 @@ describe('checks.js — timeout and error paths', () => {
   it('checkDiskSpace reports OK on sufficient space', async () => {
     const { runPreChecks } = await import('../src/checks.js');
 
-    setupStandardSpawns('10737418240'); // 10 GB
+    setupSpawnDispatch({ diskOutput: '10737418240' }); // 10 GB
 
     await runPreChecks('C:\\fake', makeMockGit());
 
@@ -110,7 +172,7 @@ describe('checks.js — timeout and error paths', () => {
   it('checkDiskSpace warns on low but not critical disk space', async () => {
     const { runPreChecks } = await import('../src/checks.js');
 
-    setupStandardSpawns('524288000'); // ~500 MB
+    setupSpawnDispatch({ diskOutput: '524288000' }); // ~500 MB
 
     await runPreChecks('C:\\fake', makeMockGit());
 
@@ -120,7 +182,7 @@ describe('checks.js — timeout and error paths', () => {
   it('checkDiskSpace throws on critically low disk space', async () => {
     const { runPreChecks } = await import('../src/checks.js');
 
-    setupStandardSpawns('52428800'); // ~50 MB
+    setupSpawnDispatch({ diskOutput: '52428800' }); // ~50 MB
 
     await expect(runPreChecks('C:\\fake', makeMockGit())).rejects.toThrow(/Very low disk space/);
   });
@@ -128,13 +190,7 @@ describe('checks.js — timeout and error paths', () => {
   it('checkDiskSpace skips when PowerShell and wmic return unparseable output', async () => {
     const { runPreChecks } = await import('../src/checks.js');
 
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'git version 2.40.0' }));
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'claude 1.0.0' }));
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'OK' }));
-    // PowerShell returns non-numeric
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'Error: no such drive', exitCode: 1 }));
-    // wmic fallback also non-numeric
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'FreeSpace\nNotANumber' }));
+    setupSpawnDispatch({ diskUnparseable: true });
 
     await runPreChecks('C:\\fake', makeMockGit());
 
@@ -148,14 +204,7 @@ describe('checks.js — timeout and error paths', () => {
   it('checkClaudeAuthenticated falls through to interactive on failed silent auth', async () => {
     const { runPreChecks } = await import('../src/checks.js');
 
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'git version 2.40.0' }));
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'claude 1.0.0' }));
-    // Silent auth fails (empty stdout, exit 1)
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: '', exitCode: 1 }));
-    // Interactive auth succeeds
-    spawn.mockImplementationOnce(() => makeFakeChild({ exitCode: 0 }));
-    // Disk space
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: '10737418240' }));
+    setupSpawnDispatch({ claudeAuthFallbackOk: true });
 
     await runPreChecks('C:\\fake', makeMockGit());
 
@@ -166,12 +215,7 @@ describe('checks.js — timeout and error paths', () => {
   it('checkClaudeAuthenticated throws when interactive auth also fails', async () => {
     const { runPreChecks } = await import('../src/checks.js');
 
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'git version 2.40.0' }));
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'claude 1.0.0' }));
-    // Silent auth fails
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: '', exitCode: 1 }));
-    // Interactive auth also fails
-    spawn.mockImplementationOnce(() => makeFakeChild({ exitCode: 1 }));
+    setupSpawnDispatch({ claudeAuthFallbackFail: true });
 
     await expect(runPreChecks('C:\\fake', makeMockGit())).rejects.toThrow(/sign-in did not complete/);
   });
@@ -179,18 +223,7 @@ describe('checks.js — timeout and error paths', () => {
   it('checkDiskSpace skips gracefully when spawn errors', async () => {
     const { runPreChecks } = await import('../src/checks.js');
 
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'git version 2.40.0' }));
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'claude 1.0.0' }));
-    spawn.mockImplementationOnce(() => makeFakeChild({ stdout: 'OK' }));
-    // Disk check spawn emits error
-    spawn.mockImplementationOnce(() => {
-      const child = new EventEmitter();
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-      child.kill = vi.fn();
-      Promise.resolve().then(() => child.emit('error', new Error('ENOENT')));
-      return child;
-    });
+    setupSpawnDispatch({ diskError: true });
 
     await runPreChecks('C:\\fake', makeMockGit());
 

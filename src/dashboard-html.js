@@ -57,6 +57,7 @@ export function getHTML(csrfToken) {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 20px;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
   .status-starting  { background: #1e3a5f; color: var(--blue); }
   .status-running   { background: #1e3a5f; color: var(--blue); }
@@ -85,6 +86,7 @@ export function getHTML(csrfToken) {
     background: var(--cyan);
     border-radius: 4px;
     transition: width 0.5s ease;
+    will-change: width;
   }
   .progress-stats {
     display: flex;
@@ -129,8 +131,12 @@ export function getHTML(csrfToken) {
     padding: 8px 10px;
     border-radius: 4px;
     font-size: 0.9rem;
+    transition: background-color 0.3s ease;
   }
   .step-item:hover { background: rgba(255,255,255,0.03); }
+  .step-running { background: rgba(59, 130, 246, 0.08); }
+  .step-completed { background: rgba(34, 197, 94, 0.04); }
+  .step-failed { background: rgba(239, 68, 68, 0.06); }
   .step-icon {
     width: 20px;
     height: 20px;
@@ -277,13 +283,21 @@ export function getHTML(csrfToken) {
 <script>
 let state = null;
 let elapsedInterval = null;
+let rafPending = null;
 
 const evtSource = new EventSource('/events');
 
 evtSource.addEventListener('state', (e) => {
   try {
     state = JSON.parse(e.data);
-    render(state);
+    // Debounce renders via requestAnimationFrame — prevents layout thrashing
+    // if multiple SSE events arrive in the same frame
+    if (!rafPending) {
+      rafPending = requestAnimationFrame(() => {
+        rafPending = null;
+        if (state) render(state);
+      });
+    }
   } catch { /* malformed SSE data — skip this event */ }
 });
 
@@ -294,6 +308,72 @@ evtSource.onerror = () => {
 evtSource.onopen = () => {
   document.getElementById('reconnecting').classList.remove('visible');
 };
+
+// Reusable DOM element for HTML escaping (avoids creating a new element per call)
+const escapeEl = document.createElement('div');
+function escapeHtml(str) {
+  escapeEl.textContent = str;
+  return escapeEl.innerHTML;
+}
+
+function stepIcon(status) {
+  if (status === 'running') return '<span class="spinner"></span>';
+  if (status === 'completed') return '&#10003;';
+  if (status === 'failed') return '&#10007;';
+  return '&#9675;';
+}
+
+// Delta-update the step list: create/update DOM elements in-place instead of
+// rebuilding innerHTML. This preserves CSS transitions on status changes and
+// avoids destroying/recreating 28 DOM nodes on every SSE event.
+function renderStepList(steps) {
+  const listEl = document.getElementById('step-list');
+
+  // Remove excess items
+  while (listEl.children.length > steps.length) {
+    listEl.removeChild(listEl.lastChild);
+  }
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    let item = listEl.children[i];
+
+    if (!item) {
+      // Create new step item
+      item = document.createElement('li');
+      item.innerHTML =
+        '<span class="step-icon" aria-hidden="true"></span>' +
+        '<span class="step-name"></span>' +
+        '<span class="step-duration"></span>';
+      listEl.appendChild(item);
+    }
+
+    // Update class (triggers CSS transition for background color)
+    const cls = 'step-item step-' + step.status;
+    if (item.className !== cls) item.className = cls;
+
+    // Update icon
+    const iconEl = item.children[0];
+    const newIcon = stepIcon(step.status);
+    if (iconEl.innerHTML !== newIcon) iconEl.innerHTML = newIcon;
+
+    // Update name
+    const nameEl = item.children[1];
+    const nameText = step.number + '. ' + escapeHtml(step.name);
+    if (nameEl.innerHTML !== nameText) nameEl.innerHTML = nameText;
+
+    // Update duration
+    const durEl = item.children[2];
+    const durText = step.duration ? formatMs(step.duration) : '';
+    if (durEl.textContent !== durText) durEl.textContent = durText;
+  }
+
+  // Auto-scroll to keep the running step visible
+  const runningItem = listEl.querySelector('.step-running');
+  if (runningItem) {
+    runningItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
 
 function render(s) {
   // Status badge
@@ -340,21 +420,8 @@ function render(s) {
     errEl.classList.remove('visible');
   }
 
-  // Step list
-  const listEl = document.getElementById('step-list');
-  listEl.innerHTML = s.steps.map((step, i) => {
-    let icon = '&#9675;';  // pending: circle
-    if (step.status === 'running') icon = '<span class="spinner"></span>';
-    else if (step.status === 'completed') icon = '&#10003;';
-    else if (step.status === 'failed') icon = '&#10007;';
-
-    const dur = step.duration ? formatMs(step.duration) : '';
-    return '<li class="step-item step-' + step.status + '">' +
-      '<span class="step-icon" aria-hidden="true">' + icon + '</span>' +
-      '<span class="step-name">' + step.number + '. ' + escapeHtml(step.name) + '</span>' +
-      (dur ? '<span class="step-duration">' + dur + '</span>' : '') +
-      '</li>';
-  }).join('');
+  // Step list — delta update for smooth CSS transitions
+  renderStepList(s.steps);
 
   // Actions
   const finished = ['completed', 'stopped', 'error'].includes(s.status);
@@ -399,12 +466,6 @@ function formatMs(ms) {
   if (m < 60) return m + 'm ' + String(s % 60).padStart(2, '0') + 's';
   const h = Math.floor(m / 60);
   return h + 'h ' + String(m % 60).padStart(2, '0') + 'm';
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 async function stopRun() {
