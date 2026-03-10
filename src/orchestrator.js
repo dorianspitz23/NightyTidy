@@ -287,7 +287,7 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
     const result = await executeSingleStep(step, projectDir, { timeout: stepTimeout });
 
     // Update state
-    const entry = { number: step.number, name: step.name, status: result.status, duration: result.duration, attempts: result.attempts };
+    const entry = { number: step.number, name: step.name, status: result.status, duration: result.duration, attempts: result.attempts, error: result.error || null };
     if (result.status === 'completed') {
       state.completedSteps.push(entry);
     } else {
@@ -343,7 +343,7 @@ export async function finishRun(projectDir) {
         output: '',
         duration: s.duration,
         attempts: s.attempts,
-        error: s.status === 'failed' ? 'Step failed during orchestrated run' : null,
+        error: s.status === 'failed' ? (s.error || 'Step failed during orchestrated run') : null,
       })),
       completedCount: state.completedSteps.length,
       failedCount: state.failedSteps.length,
