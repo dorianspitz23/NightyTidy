@@ -114,7 +114,7 @@ server.listen(0, '127.0.0.1', () => {
   pollTimer = setInterval(pollProgress, POLL_INTERVAL);
 });
 
-let pollTimer = null;
+let pollTimer = null; // hoisted: assigned in async listen callback above, declared here for SIGTERM handler
 
 server.on('error', (err) => {
   process.stderr.write(`Dashboard server error: ${err.message}\n`);

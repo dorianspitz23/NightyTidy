@@ -56,7 +56,12 @@ function promptOverride(lockData) {
 }
 
 function removeLockAndReacquire(lockPath, lockContent) {
-  unlinkSync(lockPath);
+  try {
+    unlinkSync(lockPath);
+  } catch (unlinkErr) {
+    // Lock file already removed (e.g., original holder exited during prompt) — safe to proceed
+    if (unlinkErr.code !== 'ENOENT') throw unlinkErr;
+  }
   warn('Removed stale lock file from a previous run');
   try {
     writeLockFile(lockPath, lockContent);

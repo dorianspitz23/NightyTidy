@@ -159,6 +159,8 @@ export async function startDashboard(initialState, { onStop, projectDir }) {
       });
 
       server.listen(0, '127.0.0.1', () => {
+        // Guard against stopDashboard() closing the server before this callback fires
+        if (!server) { resolve({ url: null, port: null }); return; }
         const port = server.address().port;
         const url = `http://localhost:${port}`;
 
@@ -251,5 +253,6 @@ export function stopDashboard() {
  * Only used on the success path — error/abort paths call `stopDashboard()` directly.
  */
 export function scheduleShutdown() {
+  if (shutdownTimer) clearTimeout(shutdownTimer);
   shutdownTimer = setTimeout(() => stopDashboard(), SHUTDOWN_DELAY);
 }
