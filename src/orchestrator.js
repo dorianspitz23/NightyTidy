@@ -56,8 +56,8 @@ function fail(error) {
 }
 
 function validateStepNumbers(numbers) {
-  const valid = STEPS.map(s => s.number);
-  const invalid = numbers.filter(n => !valid.includes(n));
+  const validSet = new Set(STEPS.map(s => s.number));
+  const invalid = numbers.filter(n => !validSet.has(n));
   if (invalid.length > 0) {
     return fail(`Invalid step number(s): ${invalid.join(', ')}. Valid range: 1-${STEPS.length}.`);
   }
@@ -73,15 +73,20 @@ function getDoneNumbers(state) {
 
 function buildProgressState(state) {
   const doneNums = getDoneNumbers(state);
+  // Build lookup maps for O(1) access instead of O(n) .find() per step
+  const stepsByNum = new Map(STEPS.map(s => [s.number, s]));
+  const completedByNum = new Map(state.completedSteps.map(s => [s.number, s]));
+  const failedByNum = new Map(state.failedSteps.map(s => [s.number, s]));
+
   return {
     status: 'running',
     totalSteps: state.selectedSteps.length,
     currentStepIndex: -1,
     currentStepName: '',
     steps: state.selectedSteps.map(num => {
-      const step = STEPS.find(s => s.number === num);
-      const completed = state.completedSteps.find(s => s.number === num);
-      const failed = state.failedSteps.find(s => s.number === num);
+      const step = stepsByNum.get(num);
+      const completed = completedByNum.get(num);
+      const failed = failedByNum.get(num);
       return {
         number: num,
         name: step?.name || `Step ${num}`,

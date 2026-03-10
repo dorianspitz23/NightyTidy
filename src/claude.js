@@ -72,15 +72,19 @@ function spawnClaude(prompt, cwd, useShell = false, continueSession = false) {
 
 function waitForChild(child, timeoutMs, { verbose = true, signal } = {}) {
   return new Promise((resolve) => {
-    let stdout = '';
+    // Accumulate chunks in an array and join once at the end to avoid
+    // O(n) string copies on every data event.
+    const stdoutChunks = [];
     let settled = false;
+
+    const getOutput = () => stdoutChunks.join('');
 
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       signal?.removeEventListener('abort', onAbort);
       if (verbose) forceKillChild(child); else child.kill();
-      resolve({ success: false, output: stdout, error: timeoutMessage(timeoutMs), exitCode: -1 });
+      resolve({ success: false, output: getOutput(), error: timeoutMessage(timeoutMs), exitCode: -1 });
     }, timeoutMs);
 
     // Kill child when abort signal fires
@@ -89,14 +93,14 @@ function waitForChild(child, timeoutMs, { verbose = true, signal } = {}) {
       settled = true;
       clearTimeout(timer);
       forceKillChild(child);
-      resolve({ success: false, output: stdout, error: 'Aborted by user', exitCode: -1 });
+      resolve({ success: false, output: getOutput(), error: 'Aborted by user', exitCode: -1 });
     };
     if (signal?.aborted) { onAbort(); return; }
     signal?.addEventListener('abort', onAbort, { once: true });
 
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString();
-      stdout += text;
+      stdoutChunks.push(text);
       if (verbose) debug(text.trimEnd());
     });
 
@@ -118,6 +122,7 @@ function waitForChild(child, timeoutMs, { verbose = true, signal } = {}) {
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
+      const stdout = getOutput();
       const ok = code === 0 && stdout.trim().length > 0;
       resolve({
         success: ok,

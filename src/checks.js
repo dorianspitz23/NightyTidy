@@ -14,8 +14,8 @@ function runCommand(cmd, args, { timeoutMs, ...spawnOptions } = {}) {
       ...spawnOptions,
     });
 
-    let stdout = '';
-    let stderr = '';
+    const stdoutChunks = [];
+    const stderrChunks = [];
     let timer;
 
     if (timeoutMs) {
@@ -25,13 +25,13 @@ function runCommand(cmd, args, { timeoutMs, ...spawnOptions } = {}) {
       }, timeoutMs);
     }
 
-    child.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.stdout?.on('data', (chunk) => { stdoutChunks.push(chunk.toString()); });
+    child.stderr?.on('data', (chunk) => { stderrChunks.push(chunk.toString()); });
 
     child.on('error', (err) => { if (timer) clearTimeout(timer); reject(err); });
     child.on('close', (code) => {
       if (timer) clearTimeout(timer);
-      resolve({ code, stdout, stderr });
+      resolve({ code, stdout: stdoutChunks.join(''), stderr: stderrChunks.join('') });
     });
   });
 }

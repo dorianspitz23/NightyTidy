@@ -23,6 +23,7 @@ const urlFilePath = `${projectDir}/nightytidy-dashboard.url`;
 const csrfToken = randomBytes(16).toString('hex');
 
 let currentState = null;
+let currentStateJson = null;
 const sseClients = new Set();
 
 const SECURITY_HEADERS = {
@@ -37,11 +38,13 @@ function pollProgress() {
     const raw = readFileSync(progressPath, 'utf8');
     const state = JSON.parse(raw);
 
-    // Only push if state actually changed
+    // Only push if state actually changed (compare serialized strings to avoid
+    // redundant broadcasts). Cache the JSON to avoid double-stringify per tick.
     const stateJson = JSON.stringify(state);
-    if (stateJson === JSON.stringify(currentState)) return;
+    if (stateJson === currentStateJson) return;
 
     currentState = state;
+    currentStateJson = stateJson;
     const payload = `event: state\ndata: ${stateJson}\n\n`;
     for (const client of sseClients) {
       try { client.write(payload); } catch { sseClients.delete(client); }
