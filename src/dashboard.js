@@ -11,6 +11,7 @@ const SHUTDOWN_DELAY = 3000;
 const URL_FILENAME = 'nightytidy-dashboard.url';
 const PROGRESS_FILENAME = 'nightytidy-progress.json';
 
+let serverStartTime = null;
 let server = null;
 let sseClients = new Set();
 let currentState = null;
@@ -51,6 +52,11 @@ function handleSSE(res) {
   });
 }
 
+function rejectCsrf(res) {
+  res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
+  res.end(JSON.stringify({ error: 'Invalid token' }));
+}
+
 function handleStop(req, res, onStop) {
   const MAX_BODY = 1024; // 1KB — more than enough for a JSON token payload
   let body = '';
@@ -64,15 +70,9 @@ function handleStop(req, res, onStop) {
     // Verify CSRF token to prevent cross-origin stop requests
     try {
       const parsed = JSON.parse(body || '{}');
-      if (parsed.token !== csrfToken) {
-        res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
-        res.end(JSON.stringify({ error: 'Invalid token' }));
-        return;
-      }
+      if (parsed.token !== csrfToken) { rejectCsrf(res); return; }
     } catch {
-      res.writeHead(403, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
-      res.end(JSON.stringify({ error: 'Invalid token' }));
-      return;
+      rejectCsrf(res); return;
     }
     try { onStop(); } catch { /* abort may throw if already aborted */ }
     res.writeHead(200, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
@@ -80,9 +80,28 @@ function handleStop(req, res, onStop) {
   });
 }
 
+function handleHealth(res) {
+  const state = currentState || {};
+  const body = {
+    status: 'healthy',
+    uptime: serverStartTime ? Date.now() - serverStartTime : 0,
+    sseClients: sseClients.size,
+    run: {
+      status: state.status || null,
+      totalSteps: state.totalSteps || 0,
+      completedCount: state.completedCount || 0,
+      failedCount: state.failedCount || 0,
+    },
+  };
+  res.writeHead(200, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
+  res.end(JSON.stringify(body));
+}
+
 function handleRequest(req, res, onStop) {
   if (req.method === 'GET' && req.url === '/') {
     serveHTML(res);
+  } else if (req.method === 'GET' && req.url === '/health') {
+    handleHealth(res);
   } else if (req.method === 'GET' && req.url === '/events') {
     handleSSE(res);
   } else if (req.method === 'POST' && req.url === '/stop') {
@@ -130,9 +149,16 @@ function spawnTuiWindow() {
   }
 }
 
+/**
+ * Start the dashboard HTTP server and TUI window. Errors are swallowed — dashboard failure must not crash a run.
+ * @param {object} initialState - Initial progress state to serve.
+ * @param {{ onStop: () => void, projectDir: string }} opts - Stop callback and project directory.
+ * @returns {Promise<{ url: string | null, port: number | null } | null>} Dashboard info, `{ url: null, port: null }` if only TUI is running, or `null` on complete failure.
+ */
 export async function startDashboard(initialState, { onStop, projectDir }) {
   try {
     csrfToken = randomBytes(16).toString('hex');
+    serverStartTime = Date.now();
     currentState = initialState;
     urlFilePath = path.join(projectDir, URL_FILENAME);
     progressFilePath = path.join(projectDir, PROGRESS_FILENAME);
@@ -154,7 +180,11 @@ export async function startDashboard(initialState, { onStop, projectDir }) {
       });
 
       server.listen(0, '127.0.0.1', () => {
-        const port = server.address().port;
+        // Guard against stopDashboard() closing the server before this callback fires
+        if (!server) { resolve({ url: null, port: null }); return; }
+        const addr = server.address();
+        if (!addr) { resolve({ url: null, port: null }); return; }
+        const port = addr.port;
         const url = `http://localhost:${port}`;
 
         try {
@@ -172,6 +202,10 @@ export async function startDashboard(initialState, { onStop, projectDir }) {
   }
 }
 
+/**
+ * Push updated progress state to the TUI file and all SSE clients.
+ * @param {object} state - Current progress state.
+ */
 export function updateDashboard(state) {
   currentState = state;
 
@@ -195,6 +229,10 @@ export function updateDashboard(state) {
   }
 }
 
+/**
+ * Stop the dashboard: close HTTP server, clean up SSE connections, delete ephemeral files.
+ * Safe to call multiple times or when no server is running.
+ */
 export function stopDashboard() {
   if (shutdownTimer) {
     clearTimeout(shutdownTimer);
@@ -213,6 +251,7 @@ export function stopDashboard() {
   }
 
   csrfToken = null;
+  serverStartTime = null;
 
   if (!server) {
     currentState = null;
@@ -233,6 +272,11 @@ export function stopDashboard() {
   currentState = null;
 }
 
+/**
+ * Schedule dashboard shutdown after a brief delay (allows final SSE events to reach clients).
+ * Only used on the success path — error/abort paths call `stopDashboard()` directly.
+ */
 export function scheduleShutdown() {
+  if (shutdownTimer) clearTimeout(shutdownTimer);
   shutdownTimer = setTimeout(() => stopDashboard(), SHUTDOWN_DELAY);
 }

@@ -1,3 +1,8 @@
+/**
+ * Return the complete dashboard HTML page with embedded CSS and JavaScript.
+ * @param {string} csrfToken - CSRF token to embed in the page for the stop button.
+ * @returns {string} Complete HTML document.
+ */
 export function getHTML(csrfToken) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -52,6 +57,7 @@ export function getHTML(csrfToken) {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 20px;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
   .status-starting  { background: #1e3a5f; color: var(--blue); }
   .status-running   { background: #1e3a5f; color: var(--blue); }
@@ -80,6 +86,7 @@ export function getHTML(csrfToken) {
     background: var(--cyan);
     border-radius: 4px;
     transition: width 0.5s ease;
+    will-change: width;
   }
   .progress-stats {
     display: flex;
@@ -115,6 +122,7 @@ export function getHTML(csrfToken) {
     margin-bottom: 16px;
     max-height: 400px;
     overflow-y: auto;
+    list-style: none;
   }
   .step-item {
     display: flex;
@@ -123,8 +131,12 @@ export function getHTML(csrfToken) {
     padding: 8px 10px;
     border-radius: 4px;
     font-size: 0.9rem;
+    transition: background-color 0.3s ease;
   }
   .step-item:hover { background: rgba(255,255,255,0.03); }
+  .step-running { background: rgba(59, 130, 246, 0.08); }
+  .step-completed { background: rgba(34, 197, 94, 0.04); }
+  .step-failed { background: rgba(239, 68, 68, 0.06); }
   .step-icon {
     width: 20px;
     height: 20px;
@@ -169,6 +181,10 @@ export function getHTML(csrfToken) {
     transition: opacity 0.2s;
   }
   .stop-btn:hover { opacity: 0.85; }
+  .stop-btn:focus-visible {
+    outline: 2px solid var(--cyan);
+    outline-offset: 2px;
+  }
   .stop-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
@@ -182,7 +198,7 @@ export function getHTML(csrfToken) {
     display: none;
   }
   .summary.visible { display: block; }
-  .summary h3 { margin-bottom: 8px; font-size: 1rem; }
+  .summary h2 { margin-bottom: 8px; font-size: 1rem; font-weight: 600; }
   .summary .stat { color: var(--text-dim); font-size: 0.9rem; margin: 4px 0; }
 
   .elapsed { font-variant-numeric: tabular-nums; }
@@ -216,61 +232,73 @@ export function getHTML(csrfToken) {
 </head>
 <body>
 
-<div class="reconnecting" id="reconnecting">Reconnecting...</div>
+<div class="reconnecting" id="reconnecting" role="alert" aria-live="assertive">Reconnecting...</div>
 
-<div class="header">
+<main>
+<header class="header">
   <h1>NightyTidy</h1>
   <span class="version">Live Dashboard</span>
-</div>
+</header>
 
-<div id="status-badge" class="status-badge status-starting">Starting</div>
+<div id="status-badge" class="status-badge status-starting" role="status" aria-live="polite">Starting</div>
 
-<div class="progress-section">
+<section class="progress-section" aria-label="Run progress">
   <div class="progress-stats">
     <span id="progress-text">0 / 0 steps</span>
     <span class="elapsed" id="elapsed">0m 00s</span>
   </div>
-  <div class="progress-bar-track">
+  <div class="progress-bar-track" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-label="Step completion progress" id="progress-bar">
     <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
   </div>
   <div class="progress-stats">
     <span id="counts"></span>
     <span id="percentage">0%</span>
   </div>
-</div>
+</section>
 
-<div class="current-step" id="current-step" style="display:none">
-  <span class="pulse">&#9654;</span>
+<div class="current-step" id="current-step" style="display:none" aria-live="polite">
+  <span class="pulse" aria-hidden="true">&#9654;</span>
   <div>
     <div class="label">Running now</div>
     <div class="name" id="current-step-name"></div>
   </div>
 </div>
 
-<div class="error-msg" id="error-msg"></div>
+<div class="error-msg" id="error-msg" role="alert" aria-live="assertive"></div>
 
-<div class="step-list" id="step-list"></div>
+<ul class="step-list" id="step-list" aria-label="Step results"></ul>
 
 <div class="actions" id="actions">
   <button class="stop-btn" id="stop-btn" onclick="stopRun()">Stop Run</button>
 </div>
 
-<div class="summary" id="summary">
-  <h3 id="summary-title">Run Complete</h3>
+<section class="summary" id="summary" aria-label="Run summary">
+  <h2 id="summary-title">Run Complete</h2>
   <div class="stat" id="summary-steps"></div>
   <div class="stat" id="summary-duration"></div>
   <div class="stat" id="summary-outcome"></div>
-</div>
+</section>
+</main>
 
 <script>
 let state = null;
 let elapsedInterval = null;
+let rafPending = null;
 
 const evtSource = new EventSource('/events');
 
 evtSource.addEventListener('state', (e) => {
-  state = JSON.parse(e.data);
-  render(state);
+  try {
+    state = JSON.parse(e.data);
+    // Debounce renders via requestAnimationFrame — prevents layout thrashing
+    // if multiple SSE events arrive in the same frame
+    if (!rafPending) {
+      rafPending = requestAnimationFrame(() => {
+        rafPending = null;
+        if (state) render(state);
+      });
+    }
+  } catch { /* malformed SSE data — skip this event */ }
 });
 
 evtSource.onerror = () => {
@@ -280,6 +308,72 @@ evtSource.onerror = () => {
 evtSource.onopen = () => {
   document.getElementById('reconnecting').classList.remove('visible');
 };
+
+// Reusable DOM element for HTML escaping (avoids creating a new element per call)
+const escapeEl = document.createElement('div');
+function escapeHtml(str) {
+  escapeEl.textContent = str;
+  return escapeEl.innerHTML;
+}
+
+function stepIcon(status) {
+  if (status === 'running') return '<span class="spinner"></span>';
+  if (status === 'completed') return '&#10003;';
+  if (status === 'failed') return '&#10007;';
+  return '&#9675;';
+}
+
+// Delta-update the step list: create/update DOM elements in-place instead of
+// rebuilding innerHTML. This preserves CSS transitions on status changes and
+// avoids destroying/recreating 28 DOM nodes on every SSE event.
+function renderStepList(steps) {
+  const listEl = document.getElementById('step-list');
+
+  // Remove excess items
+  while (listEl.children.length > steps.length) {
+    listEl.removeChild(listEl.lastChild);
+  }
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    let item = listEl.children[i];
+
+    if (!item) {
+      // Create new step item
+      item = document.createElement('li');
+      item.innerHTML =
+        '<span class="step-icon" aria-hidden="true"></span>' +
+        '<span class="step-name"></span>' +
+        '<span class="step-duration"></span>';
+      listEl.appendChild(item);
+    }
+
+    // Update class (triggers CSS transition for background color)
+    const cls = 'step-item step-' + step.status;
+    if (item.className !== cls) item.className = cls;
+
+    // Update icon
+    const iconEl = item.children[0];
+    const newIcon = stepIcon(step.status);
+    if (iconEl.innerHTML !== newIcon) iconEl.innerHTML = newIcon;
+
+    // Update name
+    const nameEl = item.children[1];
+    const nameText = step.number + '. ' + escapeHtml(step.name);
+    if (nameEl.innerHTML !== nameText) nameEl.innerHTML = nameText;
+
+    // Update duration
+    const durEl = item.children[2];
+    const durText = step.duration ? formatMs(step.duration) : '';
+    if (durEl.textContent !== durText) durEl.textContent = durText;
+  }
+
+  // Auto-scroll to keep the running step visible
+  const runningItem = listEl.querySelector('.step-running');
+  if (runningItem) {
+    runningItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
 
 function render(s) {
   // Status badge
@@ -293,6 +387,7 @@ function render(s) {
   const pct = s.totalSteps > 0 ? Math.round(((done + active * 0.5) / s.totalSteps) * 100) : 0;
   document.getElementById('progress-text').textContent = done + ' / ' + s.totalSteps + ' steps';
   document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-bar').setAttribute('aria-valuenow', pct);
   document.getElementById('percentage').textContent = pct + '%';
 
   const parts = [];
@@ -325,21 +420,8 @@ function render(s) {
     errEl.classList.remove('visible');
   }
 
-  // Step list
-  const listEl = document.getElementById('step-list');
-  listEl.innerHTML = s.steps.map((step, i) => {
-    let icon = '&#9675;';  // pending: circle
-    if (step.status === 'running') icon = '<span class="spinner"></span>';
-    else if (step.status === 'completed') icon = '&#10003;';
-    else if (step.status === 'failed') icon = '&#10007;';
-
-    const dur = step.duration ? formatMs(step.duration) : '';
-    return '<div class="step-item step-' + step.status + '">' +
-      '<span class="step-icon">' + icon + '</span>' +
-      '<span class="step-name">' + step.number + '. ' + escapeHtml(step.name) + '</span>' +
-      (dur ? '<span class="step-duration">' + dur + '</span>' : '') +
-      '</div>';
-  }).join('');
+  // Step list — delta update for smooth CSS transitions
+  renderStepList(s.steps);
 
   // Actions
   const finished = ['completed', 'stopped', 'error'].includes(s.status);
@@ -384,12 +466,6 @@ function formatMs(ms) {
   if (m < 60) return m + 'm ' + String(s % 60).padStart(2, '0') + 's';
   const h = Math.floor(m / 60);
   return h + 'h ' + String(m % 60).padStart(2, '0') + 'm';
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 async function stopRun() {

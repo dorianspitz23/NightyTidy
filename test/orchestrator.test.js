@@ -5,6 +5,7 @@ vi.mock('fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
+  renameSync: vi.fn(),
   unlinkSync: vi.fn(),
   openSync: vi.fn(() => 99),
   closeSync: vi.fn(),
@@ -78,7 +79,7 @@ vi.mock('../src/prompts/steps.js', () => ({
   CHANGELOG_PROMPT: 'Generate changelog',
 }));
 
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs';
 import { initRun, runStep, finishRun } from '../src/orchestrator.js';
 import { initLogger } from '../src/logger.js';
 import { runPreChecks } from '../src/checks.js';
@@ -148,7 +149,7 @@ describe('initRun', () => {
     await initRun('/fake/project', { steps: '1,2' });
 
     expect(writeFileSync).toHaveBeenCalled();
-    const stateCall = writeFileSync.mock.calls.find(c => c[0].includes('nightytidy-run-state.json'));
+    const stateCall = writeFileSync.mock.calls.find(c => c[0].includes('nightytidy-run-state.json.tmp'));
     expect(stateCall).toBeDefined();
     const state = JSON.parse(stateCall[1]);
     expect(state.version).toBe(1);
@@ -166,7 +167,7 @@ describe('initRun', () => {
 
   it('fails when state file already exists', async () => {
     existsSync.mockReturnValue(true);
-    readFileSync.mockReturnValue(JSON.stringify({ version: 1 }));
+    readFileSync.mockReturnValue(JSON.stringify({ version: 1, selectedSteps: [1], completedSteps: [], failedSteps: [], startTime: Date.now(), runBranch: 'nightytidy/run-test', originalBranch: 'main' }));
 
     const result = await initRun('/fake/project', {});
 
@@ -200,6 +201,7 @@ describe('runStep', () => {
   beforeEach(() => {
     existsSync.mockReturnValue(true);
     readFileSync.mockReturnValue(JSON.stringify(validState));
+    getCurrentBranch.mockResolvedValue('nightytidy/run-2026-03-06-1430');
   });
 
   it('executes a step and returns success result', async () => {
@@ -233,7 +235,7 @@ describe('runStep', () => {
 
     await runStep('/fake/project', 1);
 
-    const stateCall = writeFileSync.mock.calls.find(c => c[0].includes('nightytidy-run-state.json'));
+    const stateCall = writeFileSync.mock.calls.find(c => c[0].includes('nightytidy-run-state.json.tmp'));
     const updatedState = JSON.parse(stateCall[1]);
     expect(updatedState.completedSteps).toHaveLength(1);
     expect(updatedState.completedSteps[0].number).toBe(1);
@@ -254,7 +256,7 @@ describe('runStep', () => {
     expect(result.success).toBe(true); // Command succeeded even though step failed
     expect(result.status).toBe('failed');
 
-    const stateCall = writeFileSync.mock.calls.find(c => c[0].includes('nightytidy-run-state.json'));
+    const stateCall = writeFileSync.mock.calls.find(c => c[0].includes('nightytidy-run-state.json.tmp'));
     const updatedState = JSON.parse(stateCall[1]);
     expect(updatedState.failedSteps).toHaveLength(1);
   });
@@ -320,6 +322,26 @@ describe('runStep', () => {
     const result = await runStep('/fake/project', 2);
 
     expect(result.remainingSteps).toEqual([3]);
+  });
+
+  it('fails when current branch does not match run branch', async () => {
+    getCurrentBranch.mockResolvedValue('master');
+    executeSingleStep.mockResolvedValue({
+      step: { number: 1, name: 'Documentation' },
+      status: 'completed',
+      output: 'done',
+      duration: 120000,
+      attempts: 1,
+      error: null,
+    });
+
+    const result = await runStep('/fake/project', 1);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Expected branch');
+    expect(result.error).toContain('nightytidy/run-2026-03-06-1430');
+    expect(result.error).toContain('master');
+    expect(executeSingleStep).not.toHaveBeenCalled();
   });
 });
 
@@ -473,7 +495,7 @@ describe('dashboard integration', () => {
     expect(result.dashboardUrl).toBe('http://localhost:9999');
 
     // State should include dashboard PID
-    const stateCalls = writeFileSync.mock.calls.filter(c => c[0].includes('nightytidy-run-state.json'));
+    const stateCalls = writeFileSync.mock.calls.filter(c => c[0].includes('nightytidy-run-state.json.tmp'));
     const lastState = JSON.parse(stateCalls[stateCalls.length - 1][1]);
     expect(lastState.dashboardPid).toBe(12345);
     expect(lastState.dashboardUrl).toBe('http://localhost:9999');
@@ -522,6 +544,7 @@ describe('dashboard integration', () => {
     };
     existsSync.mockReturnValue(true);
     readFileSync.mockReturnValue(JSON.stringify(validState));
+    getCurrentBranch.mockResolvedValue('nightytidy/run-2026-03-06-1430');
     executeSingleStep.mockResolvedValue({
       step: { number: 1, name: 'Documentation' },
       status: 'completed',

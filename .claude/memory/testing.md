@@ -1,6 +1,6 @@
 # Testing — Tier 2 Reference
 
-Assumes CLAUDE.md loaded. 430 tests, 40 files, Vitest v2.
+Assumes CLAUDE.md loaded. 442 tests, 41 files, Vitest v2.
 
 ## Test File → Module Coverage
 

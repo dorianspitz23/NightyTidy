@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, renameSync } from 'fs';
 import { spawn } from 'child_process';
 import { platform } from 'os';
 import { fileURLToPath } from 'url';
@@ -30,6 +30,9 @@ function readState(projectDir) {
   try {
     const data = JSON.parse(readFileSync(fp, 'utf8'));
     if (data.version !== STATE_VERSION) return null;
+    // Validate required fields to guard against corrupt or hand-edited state files
+    if (!Array.isArray(data.selectedSteps) || !Array.isArray(data.completedSteps) || !Array.isArray(data.failedSteps)) return null;
+    if (typeof data.startTime !== 'number' || typeof data.runBranch !== 'string' || typeof data.originalBranch !== 'string') return null;
     return data;
   } catch {
     return null;
@@ -37,7 +40,12 @@ function readState(projectDir) {
 }
 
 function writeState(projectDir, state) {
-  writeFileSync(statePath(projectDir), JSON.stringify(state, null, 2), 'utf8');
+  // Atomic write: write to temp file then rename, so a crash mid-write
+  // never leaves a corrupted (partial JSON) state file on disk.
+  const fp = statePath(projectDir);
+  const tmp = fp + '.tmp';
+  writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
+  renameSync(tmp, fp);
 }
 
 function deleteState(projectDir) {
@@ -53,33 +61,42 @@ function fail(error) {
 }
 
 function validateStepNumbers(numbers) {
-  const valid = STEPS.map(s => s.number);
-  const invalid = numbers.filter(n => !valid.includes(n));
+  const validSet = new Set(STEPS.map(s => s.number));
+  const invalid = numbers.filter(n => !validSet.has(n));
   if (invalid.length > 0) {
     return fail(`Invalid step number(s): ${invalid.join(', ')}. Valid range: 1-${STEPS.length}.`);
   }
   return null;
 }
 
-function buildProgressState(state) {
-  const doneNums = new Set([
+function getDoneNumbers(state) {
+  return new Set([
     ...state.completedSteps.map(s => s.number),
     ...state.failedSteps.map(s => s.number),
   ]);
+}
+
+function buildProgressState(state) {
+  const doneNums = getDoneNumbers(state);
+  // Build lookup maps for O(1) access instead of O(n) .find() per step
+  const stepsByNum = new Map(STEPS.map(s => [s.number, s]));
+  const completedByNum = new Map(state.completedSteps.map(s => [s.number, s]));
+  const failedByNum = new Map(state.failedSteps.map(s => [s.number, s]));
+
   return {
     status: 'running',
     totalSteps: state.selectedSteps.length,
     currentStepIndex: -1,
     currentStepName: '',
     steps: state.selectedSteps.map(num => {
-      const step = STEPS.find(s => s.number === num);
-      const completed = state.completedSteps.find(s => s.number === num);
-      const failed = state.failedSteps.find(s => s.number === num);
+      const step = stepsByNum.get(num);
+      const completed = completedByNum.get(num);
+      const failed = failedByNum.get(num);
       return {
         number: num,
         name: step?.name || `Step ${num}`,
         status: completed ? 'completed' : failed ? 'failed' : 'pending',
-        duration: completed?.duration || failed?.duration || null,
+        duration: completed?.duration ?? failed?.duration ?? null,
       };
     }),
     completedCount: state.completedSteps.length,
@@ -139,6 +156,8 @@ function spawnDashboardServer(projectDir) {
 
       child.on('error', () => {
         clearTimeout(timer);
+        child.stdout.removeAllListeners();
+        child.unref();
         resolve(null);
       });
     });
@@ -155,7 +174,14 @@ function stopDashboardServer(pid) {
   } catch { /* already dead */ }
 }
 
+/**
+ * Initialize an orchestrated run: pre-checks, git setup, state file, dashboard. Never throws.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @param {{ steps?: string, timeout?: number }} [opts] - Comma-separated step numbers and per-step timeout in ms.
+ * @returns {Promise<{ success: true, runBranch: string, tagName: string, originalBranch: string, selectedSteps: number[], dashboardUrl: string | null } | { success: false, error: string }>}
+ */
 export async function initRun(projectDir, { steps, timeout } = {}) {
+  let lockAcquired = false;
   try {
     initLogger(projectDir, { quiet: true });
     info('NightyTidy orchestrator: init-run starting');
@@ -166,6 +192,7 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
     }
 
     await acquireLock(projectDir, { persistent: true });
+    lockAcquired = true;
 
     const git = initGit(projectDir);
     excludeEphemeralFiles();
@@ -174,9 +201,10 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
     // Validate and select steps
     let selectedNums;
     if (steps) {
-      const nums = steps.split(',').map(s => parseInt(s.trim(), 10));
+      const nums = steps.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n));
+      if (nums.length === 0) { releaseLock(projectDir); return fail('No valid step numbers provided. Use comma-separated numbers, e.g. --steps 1,5,12.'); }
       const err = validateStepNumbers(nums);
-      if (err) return err;
+      if (err) { releaseLock(projectDir); return err; }
       selectedNums = nums;
     } else {
       selectedNums = STEPS.map(s => s.number);
@@ -195,7 +223,7 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
       completedSteps: [],
       failedSteps: [],
       startTime: Date.now(),
-      timeout: timeout || null,
+      timeout: timeout ?? null,
       dashboardPid: null,
       dashboardUrl: null,
     };
@@ -222,10 +250,19 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
       dashboardUrl: state.dashboardUrl,
     });
   } catch (err) {
+    // Release persistent lock if we acquired it but failed before state was fully set up
+    if (lockAcquired) releaseLock(projectDir);
     return fail(err.message);
   }
 }
 
+/**
+ * Run a single step in an orchestrated run. Never throws.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @param {number} stepNumber - Step number to execute.
+ * @param {{ timeout?: number }} [opts] - Per-step timeout in ms.
+ * @returns {Promise<{ success: true, step: number, name: string, status: string, duration: number, durationFormatted: string, attempts: number, remainingSteps: number[] } | { success: false, error: string }>}
+ */
 export async function runStep(projectDir, stepNumber, { timeout } = {}) {
   try {
     initLogger(projectDir, { quiet: true });
@@ -253,7 +290,18 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
 
     initGit(projectDir);
 
-    const stepTimeout = timeout || state.timeout || undefined;
+    // Verify we're on the expected run branch — prevents steps from running
+    // on the wrong branch if git state changed between orchestrator commands
+    const currentBranch = await getCurrentBranch();
+    if (currentBranch !== state.runBranch) {
+      return fail(
+        `Expected branch "${state.runBranch}" but found "${currentBranch}". ` +
+        'The working tree may have been modified between orchestrator commands. ' +
+        `Check out the run branch and retry: git checkout ${state.runBranch}`
+      );
+    }
+
+    const stepTimeout = timeout ?? state.timeout ?? undefined;
 
     info(`Orchestrator: running step ${stepNumber} — ${step.name}`);
 
@@ -270,7 +318,7 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
     const result = await executeSingleStep(step, projectDir, { timeout: stepTimeout });
 
     // Update state
-    const entry = { number: step.number, name: step.name, status: result.status, duration: result.duration, attempts: result.attempts };
+    const entry = { number: step.number, name: step.name, status: result.status, duration: result.duration, attempts: result.attempts, error: result.error || null };
     if (result.status === 'completed') {
       state.completedSteps.push(entry);
     } else {
@@ -282,8 +330,7 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
     writeProgress(projectDir, buildProgressState(state));
 
     // Compute remaining
-    const doneNums = new Set([...state.completedSteps.map(s => s.number), ...state.failedSteps.map(s => s.number)]);
-    const remaining = state.selectedSteps.filter(n => !doneNums.has(n));
+    const remaining = state.selectedSteps.filter(n => !getDoneNumbers(state).has(n));
 
     return ok({
       step: stepNumber,
@@ -299,11 +346,17 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
   }
 }
 
+/**
+ * Finish an orchestrated run: changelog, report, merge, dashboard shutdown, cleanup. Never throws.
+ * @param {string} projectDir - Absolute path to the target project directory.
+ * @returns {Promise<{ success: true, completed: number, failed: number, totalDurationFormatted: string, merged: boolean, mergeConflict: boolean, reportPath: string, tagName: string, runBranch: string } | { success: false, error: string }>}
+ */
 export async function finishRun(projectDir) {
+  let state = null;
   try {
     initLogger(projectDir, { quiet: true });
 
-    const state = readState(projectDir);
+    state = readState(projectDir);
     if (!state) {
       return fail('No active orchestrator run. Nothing to finish.');
     }
@@ -322,7 +375,7 @@ export async function finishRun(projectDir) {
         output: '',
         duration: s.duration,
         attempts: s.attempts,
-        error: s.status === 'failed' ? 'Step failed during orchestrated run' : null,
+        error: s.status === 'failed' ? (s.error || 'Step failed during orchestrated run') : null,
       })),
       completedCount: state.completedSteps.length,
       failedCount: state.failedSteps.length,
@@ -336,7 +389,7 @@ export async function finishRun(projectDir) {
       info('Generating narrated changelog...');
       const changelogResult = await runPrompt(SAFETY_PREAMBLE + CHANGELOG_PROMPT, projectDir, {
         label: 'Narrated changelog',
-        timeout: state.timeout || undefined,
+        timeout: state.timeout ?? undefined,
       });
       narration = changelogResult.success ? changelogResult.output : null;
       if (!narration) warn('Narrated changelog generation failed — using fallback text');
@@ -395,6 +448,14 @@ export async function finishRun(projectDir) {
       runBranch: state.runBranch,
     });
   } catch (err) {
+    // Always clean up resources even on unexpected errors — prevents
+    // orphaned lock files and dashboard processes from blocking future runs
+    if (state) {
+      try { stopDashboardServer(state.dashboardPid); } catch { /* best effort */ }
+      try { cleanupDashboard(projectDir); } catch { /* best effort */ }
+    }
+    try { releaseLock(projectDir); } catch { /* best effort */ }
+    try { deleteState(projectDir); } catch { /* best effort */ }
     return fail(err.message);
   }
 }

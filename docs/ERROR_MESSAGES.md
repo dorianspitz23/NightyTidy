@@ -58,6 +58,22 @@ Every error message should follow this pattern:
 | Claude Code sign-in failed | `Claude Code sign-in did not complete successfully.` | `If this keeps happening, check https://status.anthropic.com for outages.` |
 | Critical disk space (<100 MB) | `Very low disk space ([N] MB free). NightyTidy needs room for git operations.` | `Free up some space and try again.` |
 
+## Step Selection (`src/cli-ui.js`)
+
+| Trigger | Message | Next Step |
+|---------|---------|-----------|
+| Invalid `--steps` numbers | `Invalid step number(s): [N, ...]. Valid range: 1-28.` | Fix the step numbers and retry. |
+| Non-TTY without `--all` or `--steps` | `Non-interactive mode requires --all or --steps <numbers>.` | `Example: npx nightytidy --all` / `Example: npx nightytidy --steps 1,5,12` |
+| No steps selected (interactive) | `No steps selected. Select at least one step to continue.` | Re-run and select at least one step. |
+| Invalid `--timeout` value | `--timeout must be a positive number of minutes (got "[value]")` | Pass a positive number: `--timeout 60` |
+
+## Git Operations (`src/git.js`)
+
+| Trigger | Message | Next Step |
+|---------|---------|-----------|
+| Safety tag collision exhausted (10 retries) | `Could not create safety tag — too many runs within the same minute. Try again shortly.` | Wait a minute and retry. |
+| Run branch collision exhausted (10 retries) | `Could not create run branch — too many runs within the same minute. Try again shortly.` | Wait a minute and retry. |
+
 ## Claude Code Subprocess (`src/claude.js`)
 
 | Trigger | Message | Context |
@@ -97,6 +113,20 @@ Every error message should follow this pattern:
 | Merge conflict | `NightyTidy: Merge Conflict` | `Changes are on branch [branch]. See NIGHTYTIDY-REPORT.md for resolution steps.` |
 | Run aborted | `NightyTidy Stopped` | `[N] steps completed. Changes on branch [branch].` |
 | Fatal error | `NightyTidy Error` | `Run stopped: [message]. Check nightytidy-run.log.` |
+
+## Orchestrator Mode (`src/orchestrator.js`)
+
+All orchestrator errors are returned as JSON `{ success: false, error: "..." }`, not shown in terminal.
+
+| Trigger | Message | Context |
+|---------|---------|---------|
+| State file exists on `--init-run` | `A run is already in progress. Call --finish-run first, or delete nightytidy-run-state.json to reset.` | Previous run not cleaned up |
+| Invalid step numbers on `--init-run` | `Invalid step number(s): [N, ...]. Valid range: 1-28.` | Same validation as CLI mode |
+| No state file on `--run-step` | `No active orchestrator run. Call --init-run first.` | State file missing or corrupt |
+| Step not in selected set | `Step [N] is not in the selected steps for this run. Selected: [N, N, N]` | Wrong step number |
+| Step already completed | `Step [N] has already been completed in this run.` | Re-running completed step |
+| Step already failed | `Step [N] has already been attempted and failed in this run.` | Re-running failed step |
+| No state file on `--finish-run` | `No active orchestrator run. Nothing to finish.` | State file missing |
 
 ## Report (`src/report.js`)
 

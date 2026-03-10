@@ -22,7 +22,9 @@ const progressPath = `${projectDir}/nightytidy-progress.json`;
 const urlFilePath = `${projectDir}/nightytidy-dashboard.url`;
 const csrfToken = randomBytes(16).toString('hex');
 
+const serverStartTime = Date.now();
 let currentState = null;
+let currentStateJson = null;
 const sseClients = new Set();
 
 const SECURITY_HEADERS = {
@@ -37,11 +39,13 @@ function pollProgress() {
     const raw = readFileSync(progressPath, 'utf8');
     const state = JSON.parse(raw);
 
-    // Only push if state actually changed
+    // Only push if state actually changed (compare serialized strings to avoid
+    // redundant broadcasts). Cache the JSON to avoid double-stringify per tick.
     const stateJson = JSON.stringify(state);
-    if (stateJson === JSON.stringify(currentState)) return;
+    if (stateJson === currentStateJson) return;
 
     currentState = state;
+    currentStateJson = stateJson;
     const payload = `event: state\ndata: ${stateJson}\n\n`;
     for (const client of sseClients) {
       try { client.write(payload); } catch { sseClients.delete(client); }
@@ -49,10 +53,29 @@ function pollProgress() {
   } catch { /* file being written or invalid — skip this tick */ }
 }
 
+function handleHealth(res) {
+  const state = currentState || {};
+  const body = {
+    status: 'healthy',
+    uptime: Date.now() - serverStartTime,
+    sseClients: sseClients.size,
+    run: {
+      status: state.status || null,
+      totalSteps: state.totalSteps || 0,
+      completedCount: state.completedCount || 0,
+      failedCount: state.failedCount || 0,
+    },
+  };
+  res.writeHead(200, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
+  res.end(JSON.stringify(body));
+}
+
 function handleRequest(req, res) {
   if (req.method === 'GET' && req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...SECURITY_HEADERS });
     res.end(getHTML(csrfToken));
+  } else if (req.method === 'GET' && req.url === '/health') {
+    handleHealth(res);
   } else if (req.method === 'GET' && req.url === '/events') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -108,17 +131,22 @@ server.listen(0, '127.0.0.1', () => {
   // Write port to stdout so the spawning process can capture it
   process.stdout.write(JSON.stringify({ port, url, pid: process.pid }) + '\n');
 
-  setInterval(pollProgress, POLL_INTERVAL);
+  pollTimer = setInterval(pollProgress, POLL_INTERVAL);
 });
+
+let pollTimer = null; // hoisted: assigned in async listen callback above, declared here for SIGTERM handler
 
 server.on('error', (err) => {
   process.stderr.write(`Dashboard server error: ${err.message}\n`);
   process.exit(1);
 });
 
-// Graceful shutdown
+// Graceful shutdown with force-kill timeout
 process.on('SIGTERM', () => {
-  clearInterval(pollProgress);
+  if (pollTimer) clearInterval(pollTimer);
   for (const client of sseClients) { try { client.end(); } catch { /* ignore */ } }
-  server.close(() => process.exit(0));
+  // Force exit after 5s if server.close() blocks on lingering connections
+  const forceTimer = setTimeout(() => process.exit(0), 5000);
+  forceTimer.unref();
+  server.close(() => { clearTimeout(forceTimer); process.exit(0); });
 });

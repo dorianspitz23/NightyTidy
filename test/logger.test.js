@@ -39,13 +39,14 @@ describe('logger', () => {
     }
   });
 
-  it('creates an empty log file on initialization', async () => {
-    const { initLogger } = await import('../src/logger.js');
+  it('creates a log file with run header on initialization', async () => {
+    const { initLogger, getRunId } = await import('../src/logger.js');
     initLogger(tempDir);
 
     const logPath = path.join(tempDir, 'nightytidy-run.log');
     const content = readFileSync(logPath, 'utf8');
-    expect(content).toBe('');
+    expect(content).toContain('# NightyTidy run');
+    expect(content).toContain(getRunId());
   });
 
   it('writes info-level messages to the log file', async () => {
@@ -211,6 +212,39 @@ describe('logger', () => {
     } finally {
       stdoutSpy.mockRestore();
       stderrSpy.mockRestore();
+    }
+  });
+
+  it('generates a run correlation ID on initialization', async () => {
+    const { initLogger, getRunId } = await import('../src/logger.js');
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      expect(getRunId()).toBeNull();
+
+      initLogger(tempDir);
+
+      const id = getRunId();
+      expect(id).toBeTypeOf('string');
+      expect(id).toHaveLength(8);
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it('writes run ID header to log file on initialization', async () => {
+    const { initLogger, getRunId } = await import('../src/logger.js');
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      initLogger(tempDir);
+
+      const logPath = path.join(tempDir, 'nightytidy-run.log');
+      const content = readFileSync(logPath, 'utf8');
+
+      expect(content).toContain(`# NightyTidy run ${getRunId()}`);
+    } finally {
+      stdoutSpy.mockRestore();
     }
   });
 
