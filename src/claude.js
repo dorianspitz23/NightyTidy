@@ -196,8 +196,11 @@ export async function runPrompt(prompt, cwd, options = {}) {
     warn(`Claude Code failed: ${label} — ${result.error} (attempt ${attempt}/${totalAttempts})`);
 
     if (attempt < totalAttempts) {
-      warn(`Retrying ${label} in 10s (attempt ${attempt + 1}/${totalAttempts})`);
-      await sleep(RETRY_DELAY, signal);
+      // Add jitter (0-50% of base delay) to prevent synchronized retries
+      const jitter = Math.round(Math.random() * RETRY_DELAY * 0.5);
+      const delay = RETRY_DELAY + jitter;
+      warn(`Retrying ${label} in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}/${totalAttempts})`);
+      await sleep(delay, signal);
     }
   }
 

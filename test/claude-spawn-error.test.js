@@ -102,9 +102,9 @@ describe('claude.js — spawn error path', () => {
         retries: 3,
       });
 
-      // Advance through the retry delays (10s each)
-      await vi.advanceTimersByTimeAsync(11000);
-      await vi.advanceTimersByTimeAsync(11000);
+      // Advance through the retry delays (10s base + up to 5s jitter each)
+      await vi.advanceTimersByTimeAsync(16000);
+      await vi.advanceTimersByTimeAsync(16000);
 
       const result = await resultPromise;
 

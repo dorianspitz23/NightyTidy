@@ -121,9 +121,12 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
-// Graceful shutdown
+// Graceful shutdown with force-kill timeout
 process.on('SIGTERM', () => {
   if (pollTimer) clearInterval(pollTimer);
   for (const client of sseClients) { try { client.end(); } catch { /* ignore */ } }
-  server.close(() => process.exit(0));
+  // Force exit after 5s if server.close() blocks on lingering connections
+  const forceTimer = setTimeout(() => process.exit(0), 5000);
+  forceTimer.unref();
+  server.close(() => { clearTimeout(forceTimer); process.exit(0); });
 });

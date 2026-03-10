@@ -4,6 +4,9 @@ import { info, debug, warn } from './logger.js';
 import { cleanEnv } from './claude.js';
 
 const AUTH_TIMEOUT_MS = 30000;
+const CMD_TIMEOUT_MS = 15000; // 15s for simple commands (git --version, claude --version, df/wmic)
+const AUTH_INTERACTIVE_TIMEOUT_MS = 120000; // 2 minutes for interactive auth flow
+const SIGKILL_DELAY = 5000; // grace period before SIGKILL after initial kill
 const CRITICAL_DISK_MB = 100;
 const LOW_DISK_MB = 1024;
 
@@ -17,10 +20,15 @@ function runCommand(cmd, args, { timeoutMs, ...spawnOptions } = {}) {
     const stdoutChunks = [];
     const stderrChunks = [];
     let timer;
+    let settled = false;
 
     if (timeoutMs) {
       timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         child.kill();
+        // Force-kill if SIGTERM is ignored (e.g., frozen process)
+        setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already dead */ } }, SIGKILL_DELAY);
         reject(new Error('timeout'));
       }, timeoutMs);
     }
@@ -28,8 +36,15 @@ function runCommand(cmd, args, { timeoutMs, ...spawnOptions } = {}) {
     child.stdout?.on('data', (chunk) => { stdoutChunks.push(chunk.toString()); });
     child.stderr?.on('data', (chunk) => { stderrChunks.push(chunk.toString()); });
 
-    child.on('error', (err) => { if (timer) clearTimeout(timer); reject(err); });
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
     child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
       if (timer) clearTimeout(timer);
       resolve({ code, stdout: stdoutChunks.join(''), stderr: stderrChunks.join('') });
     });
@@ -38,13 +53,14 @@ function runCommand(cmd, args, { timeoutMs, ...spawnOptions } = {}) {
 
 async function checkGitInstalled() {
   try {
-    const result = await runCommand('git', ['--version']);
+    const result = await runCommand('git', ['--version'], { timeoutMs: CMD_TIMEOUT_MS });
     if (result.code !== 0) throw new Error();
     info('Pre-check: git installed \u2713');
-  } catch {
+  } catch (err) {
     throw new Error(
-      'Git is not installed or not on your PATH.\n' +
-      'Install it from https://git-scm.com and try again.'
+      err.message === 'timeout'
+        ? 'Git did not respond within 15 seconds. It may be hanging — check for git credential prompts or lock files.'
+        : 'Git is not installed or not on your PATH.\nInstall it from https://git-scm.com and try again.'
     );
   }
 }
@@ -75,13 +91,14 @@ async function checkHasCommits(git) {
 
 async function checkClaudeInstalled() {
   try {
-    const result = await runCommand('claude', ['--version'], { env: cleanEnv() });
+    const result = await runCommand('claude', ['--version'], { env: cleanEnv(), timeoutMs: CMD_TIMEOUT_MS });
     if (result.code !== 0) throw new Error();
     info('Pre-check: Claude Code installed \u2713');
-  } catch {
+  } catch (err) {
     throw new Error(
-      'Claude Code not detected.\n' +
-      'Install it from https://docs.anthropic.com/en/docs/claude-code and sign in before running NightyTidy.'
+      err.message === 'timeout'
+        ? 'Claude Code did not respond within 15 seconds. It may be hanging or misconfigured.'
+        : 'Claude Code not detected.\nInstall it from https://docs.anthropic.com/en/docs/claude-code and sign in before running NightyTidy.'
     );
   }
 }
@@ -93,8 +110,14 @@ function runInteractiveAuth() {
       shell: platform() === 'win32',
       env: cleanEnv(),
     });
-    child.on('error', reject);
+    const timer = setTimeout(() => {
+      child.kill();
+      setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already dead */ } }, SIGKILL_DELAY);
+      reject(new Error('Interactive auth timed out after 2 minutes. Check your network connection and try again.'));
+    }, AUTH_INTERACTIVE_TIMEOUT_MS);
+    child.on('error', (err) => { clearTimeout(timer); reject(err); });
     child.on('close', (code) => {
+      clearTimeout(timer);
       if (code === 0) resolve();
       else reject(new Error(`claude exited with code ${code}`));
     });
@@ -147,7 +170,7 @@ async function checkDiskSpace(projectDir) {
       const psResult = await runCommand('powershell', [
         '-NoProfile', '-Command',
         `(Get-PSDrive ${driveLetter}).Free`,
-      ]);
+      ], { timeoutMs: CMD_TIMEOUT_MS });
       const psMatch = psResult.stdout.trim().match(/^(\d+)$/);
       if (psResult.code === 0 && psMatch) {
         freeBytes = parseInt(psMatch[1], 10);
@@ -155,12 +178,12 @@ async function checkDiskSpace(projectDir) {
         // Fallback to wmic for older Windows
         const result = await runCommand('wmic', [
           'logicaldisk', 'where', `DeviceID='${driveLetter}:'`, 'get', 'FreeSpace',
-        ]);
+        ], { timeoutMs: CMD_TIMEOUT_MS });
         const match = result.stdout.match(/(\d+)/);
         if (match) freeBytes = parseInt(match[1], 10);
       }
     } else {
-      const result = await runCommand('df', ['-k', projectDir]);
+      const result = await runCommand('df', ['-k', projectDir], { timeoutMs: CMD_TIMEOUT_MS });
       const lines = result.stdout.trim().split('\n');
       if (lines.length >= 2) {
         const parts = lines[1].split(/\s+/);

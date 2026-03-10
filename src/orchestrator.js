@@ -176,6 +176,7 @@ function stopDashboardServer(pid) {
  * @returns {Promise<{ success: true, runBranch: string, tagName: string, originalBranch: string, selectedSteps: number[], dashboardUrl: string | null } | { success: false, error: string }>}
  */
 export async function initRun(projectDir, { steps, timeout } = {}) {
+  let lockAcquired = false;
   try {
     initLogger(projectDir, { quiet: true });
     info('NightyTidy orchestrator: init-run starting');
@@ -186,6 +187,7 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
     }
 
     await acquireLock(projectDir, { persistent: true });
+    lockAcquired = true;
 
     const git = initGit(projectDir);
     excludeEphemeralFiles();
@@ -195,9 +197,9 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
     let selectedNums;
     if (steps) {
       const nums = steps.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n));
-      if (nums.length === 0) return fail('No valid step numbers provided. Use comma-separated numbers, e.g. --steps 1,5,12.');
+      if (nums.length === 0) { releaseLock(projectDir); return fail('No valid step numbers provided. Use comma-separated numbers, e.g. --steps 1,5,12.'); }
       const err = validateStepNumbers(nums);
-      if (err) return err;
+      if (err) { releaseLock(projectDir); return err; }
       selectedNums = nums;
     } else {
       selectedNums = STEPS.map(s => s.number);
@@ -243,6 +245,8 @@ export async function initRun(projectDir, { steps, timeout } = {}) {
       dashboardUrl: state.dashboardUrl,
     });
   } catch (err) {
+    // Release persistent lock if we acquired it but failed before state was fully set up
+    if (lockAcquired) releaseLock(projectDir);
     return fail(err.message);
   }
 }
@@ -332,10 +336,11 @@ export async function runStep(projectDir, stepNumber, { timeout } = {}) {
  * @returns {Promise<{ success: true, completed: number, failed: number, totalDurationFormatted: string, merged: boolean, mergeConflict: boolean, reportPath: string, tagName: string, runBranch: string } | { success: false, error: string }>}
  */
 export async function finishRun(projectDir) {
+  let state = null;
   try {
     initLogger(projectDir, { quiet: true });
 
-    const state = readState(projectDir);
+    state = readState(projectDir);
     if (!state) {
       return fail('No active orchestrator run. Nothing to finish.');
     }
@@ -427,6 +432,14 @@ export async function finishRun(projectDir) {
       runBranch: state.runBranch,
     });
   } catch (err) {
+    // Always clean up resources even on unexpected errors — prevents
+    // orphaned lock files and dashboard processes from blocking future runs
+    if (state) {
+      try { stopDashboardServer(state.dashboardPid); } catch { /* best effort */ }
+      try { cleanupDashboard(projectDir); } catch { /* best effort */ }
+    }
+    try { releaseLock(projectDir); } catch { /* best effort */ }
+    try { deleteState(projectDir); } catch { /* best effort */ }
     return fail(err.message);
   }
 }

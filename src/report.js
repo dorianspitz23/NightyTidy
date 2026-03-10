@@ -115,30 +115,34 @@ function buildUndoSection(metadata) {
  * @param {{ projectDir: string, branchName: string, tagName: string, originalBranch: string, startTime: number, endTime: number }} metadata - Run metadata.
  */
 export function generateReport(results, narration, metadata) {
-  const date = formatDate(metadata.startTime);
+  try {
+    const date = formatDate(metadata.startTime);
 
-  let report = `# NightyTidy Report \u2014 ${date}\n\n`;
+    let report = `# NightyTidy Report \u2014 ${date}\n\n`;
 
-  if (narration) {
-    report += `${narration}\n\n---\n\n`;
-  } else {
-    report += `${fallbackNarration(results)}\n\n---\n\n`;
+    if (narration) {
+      report += `${narration}\n\n---\n\n`;
+    } else {
+      report += `${fallbackNarration(results)}\n\n---\n\n`;
+    }
+
+    report += buildSummarySection(results, metadata);
+    report += buildStepTable(results);
+
+    if (results.failedCount > 0) {
+      report += buildFailedSection(results);
+    }
+
+    report += buildUndoSection(metadata);
+
+    const reportPath = path.join(metadata.projectDir, 'NIGHTYTIDY-REPORT.md');
+    writeFileSync(reportPath, report, 'utf8');
+    info(`Report written to ${reportPath}`);
+  } catch (err) {
+    warn(`Failed to write report: ${err.message}`);
   }
 
-  report += buildSummarySection(results, metadata);
-  report += buildStepTable(results);
-
-  if (results.failedCount > 0) {
-    report += buildFailedSection(results);
-  }
-
-  report += buildUndoSection(metadata);
-
-  const reportPath = path.join(metadata.projectDir, 'NIGHTYTIDY-REPORT.md');
-  writeFileSync(reportPath, report, 'utf8');
-  info(`Report written to ${reportPath}`);
-
-  // Update CLAUDE.md
+  // Update CLAUDE.md (has its own try/catch)
   updateClaudeMd(metadata);
 }
 
