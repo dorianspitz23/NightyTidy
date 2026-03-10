@@ -120,6 +120,7 @@ export function getHTML(csrfToken) {
     margin-bottom: 16px;
     max-height: 400px;
     overflow-y: auto;
+    list-style: none;
   }
   .step-item {
     display: flex;
@@ -174,6 +175,10 @@ export function getHTML(csrfToken) {
     transition: opacity 0.2s;
   }
   .stop-btn:hover { opacity: 0.85; }
+  .stop-btn:focus-visible {
+    outline: 2px solid var(--cyan);
+    outline-offset: 2px;
+  }
   .stop-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
@@ -187,7 +192,7 @@ export function getHTML(csrfToken) {
     display: none;
   }
   .summary.visible { display: block; }
-  .summary h3 { margin-bottom: 8px; font-size: 1rem; }
+  .summary h2 { margin-bottom: 8px; font-size: 1rem; font-weight: 600; }
   .summary .stat { color: var(--text-dim); font-size: 0.9rem; margin: 4px 0; }
 
   .elapsed { font-variant-numeric: tabular-nums; }
@@ -221,51 +226,53 @@ export function getHTML(csrfToken) {
 </head>
 <body>
 
-<div class="reconnecting" id="reconnecting">Reconnecting...</div>
+<div class="reconnecting" id="reconnecting" role="alert" aria-live="assertive">Reconnecting...</div>
 
-<div class="header">
+<main>
+<header class="header">
   <h1>NightyTidy</h1>
   <span class="version">Live Dashboard</span>
-</div>
+</header>
 
-<div id="status-badge" class="status-badge status-starting">Starting</div>
+<div id="status-badge" class="status-badge status-starting" role="status" aria-live="polite">Starting</div>
 
-<div class="progress-section">
+<section class="progress-section" aria-label="Run progress">
   <div class="progress-stats">
     <span id="progress-text">0 / 0 steps</span>
     <span class="elapsed" id="elapsed">0m 00s</span>
   </div>
-  <div class="progress-bar-track">
+  <div class="progress-bar-track" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-label="Step completion progress" id="progress-bar">
     <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
   </div>
   <div class="progress-stats">
     <span id="counts"></span>
     <span id="percentage">0%</span>
   </div>
-</div>
+</section>
 
-<div class="current-step" id="current-step" style="display:none">
-  <span class="pulse">&#9654;</span>
+<div class="current-step" id="current-step" style="display:none" aria-live="polite">
+  <span class="pulse" aria-hidden="true">&#9654;</span>
   <div>
     <div class="label">Running now</div>
     <div class="name" id="current-step-name"></div>
   </div>
 </div>
 
-<div class="error-msg" id="error-msg"></div>
+<div class="error-msg" id="error-msg" role="alert" aria-live="assertive"></div>
 
-<div class="step-list" id="step-list"></div>
+<ul class="step-list" id="step-list" aria-label="Step results"></ul>
 
 <div class="actions" id="actions">
   <button class="stop-btn" id="stop-btn" onclick="stopRun()">Stop Run</button>
 </div>
 
-<div class="summary" id="summary">
-  <h3 id="summary-title">Run Complete</h3>
+<section class="summary" id="summary" aria-label="Run summary">
+  <h2 id="summary-title">Run Complete</h2>
   <div class="stat" id="summary-steps"></div>
   <div class="stat" id="summary-duration"></div>
   <div class="stat" id="summary-outcome"></div>
-</div>
+</section>
+</main>
 
 <script>
 let state = null;
@@ -300,6 +307,7 @@ function render(s) {
   const pct = s.totalSteps > 0 ? Math.round(((done + active * 0.5) / s.totalSteps) * 100) : 0;
   document.getElementById('progress-text').textContent = done + ' / ' + s.totalSteps + ' steps';
   document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-bar').setAttribute('aria-valuenow', pct);
   document.getElementById('percentage').textContent = pct + '%';
 
   const parts = [];
@@ -341,11 +349,11 @@ function render(s) {
     else if (step.status === 'failed') icon = '&#10007;';
 
     const dur = step.duration ? formatMs(step.duration) : '';
-    return '<div class="step-item step-' + step.status + '">' +
-      '<span class="step-icon">' + icon + '</span>' +
+    return '<li class="step-item step-' + step.status + '">' +
+      '<span class="step-icon" aria-hidden="true">' + icon + '</span>' +
       '<span class="step-name">' + step.number + '. ' + escapeHtml(step.name) + '</span>' +
       (dur ? '<span class="step-duration">' + dur + '</span>' : '') +
-      '</div>';
+      '</li>';
   }).join('');
 
   // Actions
